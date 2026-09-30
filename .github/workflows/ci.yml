@@ -1,15 +1,18 @@
 name: Build
 
-# 仅手动触发：在 Actions 页面点击 "Run workflow" 选择要构建的目标。
-# 依赖一律使用官方源（pub.dev、google()/mavenCentral()、services.gradle.org），
-# 项目内不含镜像配置。
+# 仅手动触发：在 Actions 页面 Run workflow，或 gh workflow run ci.yml 选择目标。
 #
-# 缓存策略（加速二次编译）：
-#   1. Flutter SDK           —— subosito/flutter-action 的 cache
-#   2. pub 依赖与 .dart_tool  —— actions/cache，按 pubspec.lock 哈希
-#   3. Gradle 依赖与构建缓存  —— gradle/actions/setup-gradle
-#   4. Android SDK 组件       —— NDK / platform-36 / build-tools-36 定向缓存
-#   5. Gradle 发行包          —— setup-gradle 内置 ~/.gradle/wrapper 缓存
+# 为兼容性与稳定性做的固定（不使用 *-latest / 浮动 tag）：
+#   - 构建环境：Debian 13 (trixie) 容器，软件包版本由发行版冻结
+#   - 运行器：ubuntu-24.04（固定版本标签）
+#   - 工具链：Flutter 3.47.0、JDK 21（Debian 包）、Android cmdline-tools 13114758、
+#             platform 36、build-tools 36.0.0、NDK 28.2.13676358、Gradle 9.3.1（wrapper）
+#   - Action：全部固定到具体 release tag
+#
+# 依赖一律使用官方源（pub.dev、google()/mavenCentral()、services.gradle.org、dl.google.com）。
+#
+# 缓存（加速二次编译）：Flutter SDK、pub 依赖、Gradle 依赖与构建缓存、
+# 整个 Android SDK 目录（含 NDK，首次约 1GB，之后命中缓存）。
 
 on:
   workflow_dispatch:
@@ -33,22 +36,31 @@ concurrency:
 
 env:
   FLUTTER_VERSION: '3.47.0'
-  NDK_VERSION: '28.2.13676358'
-  ANDROID_PLATFORM: 'android-36'
+  JAVA_PACKAGE: openjdk-21-jdk-headless
+  ANDROID_SDK_ROOT: /opt/android-sdk
+  CMDLINE_TOOLS_VERSION: '13114758'
+  ANDROID_PLATFORM: android-36
   BUILD_TOOLS: '36.0.0'
+  NDK_VERSION: '28.2.13676358'
+  BASE_PACKAGES: git ca-certificates curl unzip xz-utils tar gzip zstd
 
 jobs:
   analyze:
     name: 分析与单元测试
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container: debian:13-slim
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: 安装基础依赖
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ${BASE_PACKAGES}
+      - uses: actions/checkout@v7.0.1
+      - uses: subosito/flutter-action@v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - name: 缓存 pub 依赖
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.pub-cache
@@ -56,27 +68,52 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
           restore-keys: |
             pub-${{ runner.os }}-
+      - run: flutter config --no-analytics
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
 
   android:
     name: Android APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container: debian:13-slim
     needs: analyze
     if: ${{ inputs.build_android }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: 安装基础依赖与 JDK
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ${BASE_PACKAGES} ${JAVA_PACKAGE}
+          JDK_DIR="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
+          echo "JAVA_HOME=$JDK_DIR" >> "$GITHUB_ENV"
+          java -version
+      - uses: actions/checkout@v7.0.1
+      - name: 缓存 Android SDK（含 NDK）
+        uses: actions/cache@v6.1.0
         with:
-          distribution: temurin
-          java-version: '21'
-      - uses: subosito/flutter-action@v2
+          path: /opt/android-sdk
+          key: android-sdk-debian13-tools${{ env.CMDLINE_TOOLS_VERSION }}-${{ env.ANDROID_PLATFORM }}-bt${{ env.BUILD_TOOLS }}-ndk${{ env.NDK_VERSION }}
+      - name: 安装 Android SDK 组件（固定版本）
+        run: |
+          if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+            curl -fsSL -o /tmp/cmdline-tools.zip \
+              "https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip"
+            unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          fi
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;${ANDROID_PLATFORM}" "build-tools;${BUILD_TOOLS}" "ndk;${NDK_VERSION}"
+          echo "--- 已安装组件 ---"
+          ls "$ANDROID_SDK_ROOT/platforms" "$ANDROID_SDK_ROOT/build-tools" "$ANDROID_SDK_ROOT/ndk"
+      - uses: subosito/flutter-action@v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - name: 缓存 pub 依赖
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.pub-cache
@@ -84,65 +121,44 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
           restore-keys: |
             pub-${{ runner.os }}-
-      - name: 定位 Android SDK
-        run: |
-          # 运行器镜像自带 Android SDK 与 cmdline-tools，不依赖 setup-android action
-          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "sdk.dir=$SDK" > android/local.properties
-          echo "SDK=$SDK"
-          ls "$SDK"
-          ls -d "$SDK"/cmdline-tools/*/bin 2>/dev/null || true
-      - name: 缓存 Android SDK 组件
-        uses: actions/cache@v4
-        with:
-          path: |
-            /usr/local/lib/android/sdk/ndk/${{ env.NDK_VERSION }}
-            /usr/local/lib/android/sdk/platforms/${{ env.ANDROID_PLATFORM }}
-            /usr/local/lib/android/sdk/build-tools/${{ env.BUILD_TOOLS }}
-          key: android-sdk-${{ runner.os }}-ndk${{ env.NDK_VERSION }}-${{ env.ANDROID_PLATFORM }}-bt${{ env.BUILD_TOOLS }}
-      - name: 安装缺失的 SDK 组件
-        run: |
-          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
-          CMDLINE="$(ls -d "$SDK"/cmdline-tools/*/bin 2>/dev/null | head -1)"
-          if [ -n "$CMDLINE" ]; then export PATH="$CMDLINE:$PATH"; fi
-          if command -v sdkmanager > /dev/null; then
-            yes | sdkmanager --licenses > /dev/null 2>&1 || true
-            sdkmanager "platforms;${ANDROID_PLATFORM}" "build-tools;${BUILD_TOOLS}" "ndk;${NDK_VERSION}"
-          else
-            echo "::warning::未找到 sdkmanager，交由 AGP 自动安装缺失组件"
-          fi
-          echo "--- 已安装组件 ---"
-          ls "$SDK/ndk" "$SDK/platforms" "$SDK/build-tools" 2>/dev/null || true
       - name: 配置 Gradle 缓存
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.4.0
         with:
           cache-read-only: false
           gradle-home-cache-cleanup: true
       - name: 构建 Release APK
-        run: flutter build apk --release --build-number=${{ github.run_number }}
+        run: |
+          flutter config --no-analytics
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+          flutter pub get
+          flutter build apk --release --build-number=${{ github.run_number }}
       - name: 上传 APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
-          name: reader-android-apk
+          name: readerplus-android-apk
           path: build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
           retention-days: 30
 
   linux:
     name: Linux 桌面
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container: debian:13-slim
     needs: analyze
     if: ${{ inputs.build_linux }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: 安装基础依赖与桌面构建链
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ${BASE_PACKAGES} build-essential clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - uses: actions/checkout@v7.0.1
+      - uses: subosito/flutter-action@v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - name: 缓存 pub 依赖
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.pub-cache
@@ -150,18 +166,17 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
           restore-keys: |
             pub-${{ runner.os }}-
-      - name: 安装桌面构建依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
       - name: 构建 Release
-        run: flutter build linux --release --build-number=${{ github.run_number }}
+        run: |
+          flutter config --no-analytics
+          flutter pub get
+          flutter build linux --release --build-number=${{ github.run_number }}
       - name: 打包
-        run: tar -czf reader-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+        run: tar -czf readerplus-linux-x64.tar.gz -C build/linux/x64/release/bundle .
       - name: 上传产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
-          name: reader-linux-x64
-          path: reader-linux-x64.tar.gz
+          name: readerplus-linux-x64
+          path: readerplus-linux-x64.tar.gz
           if-no-files-found: error
           retention-days: 30

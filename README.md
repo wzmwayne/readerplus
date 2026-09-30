@@ -41,18 +41,30 @@ books/<bookId>/content.txt      书籍正文
 
 ## 构建
 
-构建统一由 GitHub Actions 完成（`.github/workflows/ci.yml`，**仅手动触发**，在 Actions 页面 Run workflow 时选择目标）。运行器为 x86-64，
-依赖全部使用官方源（pub.dev、`google()`/`mavenCentral()`、`services.gradle.org`），
-项目内不含任何镜像配置。产物在 Actions 运行页面的 Artifacts 中下载：
+构建统一由 GitHub Actions 完成（`.github/workflows/ci.yml`，**仅手动触发**，在 Actions 页面
+Run workflow 时选择目标）。依赖全部使用官方源，项目内不含任何镜像配置。产物在 Actions
+运行页面的 Artifacts 中下载：
 
 | 任务 | 产物 |
 | --- | --- |
 | `analyze` | `flutter analyze` + `flutter test` 门禁 |
-| `android` | `reader-android-apk`（Release APK） |
-| `linux` | `reader-linux-x64.tar.gz` |
+| `android` | `readerplus-android-apk`（Release APK） |
+| `linux` | `readerplus-linux-x64.tar.gz` |
 
-工作流缓存了 Flutter SDK、pub 依赖、Gradle 依赖与构建缓存、Android SDK 组件
-（NDK / platform-36 / build-tools-36）以及 Gradle 发行包，二次编译无需重复下载。
+为了兼容性与稳定性，构建环境与工具链全部固定，不使用 `*-latest` 与浮动版本：
+
+| 项 | 固定值 |
+| --- | --- |
+| 构建环境 | Debian 13（trixie）容器，系统包版本由发行版冻结 |
+| 运行器 | `ubuntu-24.04` |
+| Flutter | 3.47.0 |
+| JDK | 21（Debian `openjdk-21-jdk-headless`） |
+| Android 工具链 | cmdline-tools 13114758、platform 36、build-tools 36.0.0、NDK 28.2.13676358 |
+| Gradle | 9.3.1（wrapper） |
+| Actions | 全部固定到具体 release tag |
+
+工作流缓存了 Flutter SDK、pub 依赖、Gradle 依赖与构建缓存、整个 Android SDK 目录
+（含 NDK，首次约 1GB）以及 Gradle 发行包，二次编译无需重复下载。
 
 本地构建（可选）需要 x86-64 主机：Android 工具链中的 `aapt2`、`cmake` 官方只提供
 x86-64 版本，aarch64 主机需自行提供 binfmt/qemu 模拟。
