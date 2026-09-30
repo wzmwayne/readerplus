@@ -210,6 +210,9 @@ class ReaderSettings {
   TipMode headerMiddle;
   TipMode headerRight;
   TipMode footerLeft;
+  /// 横屏时是否把顶栏/底栏显示到左右两侧。
+  bool landscapeSideMenu;
+
   TipMode footerMiddle;
   TipMode footerRight;
   bool showHeaderLine;
@@ -239,6 +242,7 @@ class ReaderSettings {
     this.headerRight = TipMode.none,
     this.footerLeft = TipMode.progress,
     this.footerMiddle = TipMode.none,
+    this.landscapeSideMenu = true,
     this.footerRight = TipMode.pageIndex,
     this.showHeaderLine = false,
     this.showFooterLine = true,
@@ -286,6 +290,7 @@ class ReaderSettings {
     'headerRight': headerRight.name,
     'footerLeft': footerLeft.name,
     'footerMiddle': footerMiddle.name,
+    'landscapeSideMenu': landscapeSideMenu,
     'footerRight': footerRight.name,
     'showHeaderLine': showHeaderLine,
     'showFooterLine': showFooterLine,
@@ -315,6 +320,7 @@ class ReaderSettings {
     headerRight: TipMode.parse(json['headerRight'] as String?),
     footerLeft: TipMode.parse(json['footerLeft'] as String?),
     footerMiddle: TipMode.parse(json['footerMiddle'] as String?),
+    landscapeSideMenu: json['landscapeSideMenu'] as bool? ?? true,
     footerRight: TipMode.parse(json['footerRight'] as String?),
     showHeaderLine: json['showHeaderLine'] as bool? ?? false,
     showFooterLine: json['showFooterLine'] as bool? ?? true,

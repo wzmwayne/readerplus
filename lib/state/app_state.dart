@@ -143,8 +143,20 @@ class AppState extends ChangeNotifier {
     _notify('已删除《${book.title}》');
   }
 
-  Future<void> saveProgress(Book book, int chapter, int offset, double progress) async {
-    await library.touch(book, chapter: chapter, offset: offset, progress: progress);
+  Future<void> saveProgress(
+    Book book,
+    int chapter,
+    int line,
+    int offset,
+    double progress,
+  ) async {
+    await library.touch(
+      book,
+      chapter: chapter,
+      line: line,
+      offset: offset,
+      progress: progress,
+    );
     notifyListeners();
   }
 

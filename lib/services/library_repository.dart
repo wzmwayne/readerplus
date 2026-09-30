@@ -106,6 +106,12 @@ class LibraryRepository {
       charCount: parsed.content.length,
       chapterCount: parsed.chapters.length,
     );
+    final cover = parsed.coverBytes;
+    if (cover != null && cover.isNotEmpty) {
+      final relative = 'books/${book.id}/cover.${parsed.coverExtension ?? 'jpg'}';
+      await storage.writeBytes(relative, cover);
+      book.coverPath = storage.file(relative).path;
+    }
     await _persist(book, parsed.content, parsed.chapters);
     return book;
   }
@@ -131,8 +137,15 @@ class LibraryRepository {
     await save();
   }
 
-  Future<void> touch(Book book, {int? chapter, int? offset, double? progress}) async {
+  Future<void> touch(
+    Book book, {
+    int? chapter,
+    int? line,
+    int? offset,
+    double? progress,
+  }) async {
     if (chapter != null) book.lastChapter = chapter;
+    if (line != null) book.lastLine = line;
     if (offset != null) book.lastOffset = offset;
     if (progress != null) book.progress = progress;
     book.lastReadAt = DateTime.now();

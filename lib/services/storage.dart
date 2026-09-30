@@ -57,6 +57,12 @@ class Storage {
     await f.writeAsString(content, flush: true);
   }
 
+  Future<void> writeBytes(String relative, List<int> bytes) async {
+    final f = file(relative);
+    await f.parent.create(recursive: true);
+    await f.writeAsBytes(bytes, flush: true);
+  }
+
   Future<String?> readText(String relative) async {
     final f = file(relative);
     if (!await f.exists()) return null;

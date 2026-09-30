@@ -14,6 +14,9 @@ class Book {
   String? originalPath;
   int lastChapter;
   int lastOffset;
+
+  /// 阅读进度锚点：屏幕顶部所在的行号（章内整体行序，与分辨率无关）。
+  int lastLine;
   double progress;
   DateTime addedAt;
   DateTime? lastReadAt;
@@ -31,6 +34,7 @@ class Book {
     this.originalPath,
     this.lastChapter = 0,
     this.lastOffset = 0,
+    this.lastLine = 0,
     this.progress = 0,
     DateTime? addedAt,
     this.lastReadAt,
@@ -58,6 +62,7 @@ class Book {
     'originalPath': originalPath,
     'lastChapter': lastChapter,
     'lastOffset': lastOffset,
+    'lastLine': lastLine,
     'progress': progress,
     'addedAt': addedAt.toIso8601String(),
     'lastReadAt': lastReadAt?.toIso8601String(),
@@ -76,6 +81,7 @@ class Book {
     originalPath: json['originalPath'] as String?,
     lastChapter: (json['lastChapter'] as num?)?.toInt() ?? 0,
     lastOffset: (json['lastOffset'] as num?)?.toInt() ?? 0,
+    lastLine: (json['lastLine'] as num?)?.toInt() ?? 0,
     progress: (json['progress'] as num?)?.toDouble() ?? 0,
     addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ?? DateTime.now(),
     lastReadAt: DateTime.tryParse(json['lastReadAt'] as String? ?? ''),

@@ -14,12 +14,18 @@ class EpubBook {
     required this.author,
     required this.content,
     required this.chapters,
+    this.coverBytes,
+    this.coverExtension,
   });
 
   final String title;
   final String author;
   final String content;
   final List<Chapter> chapters;
+
+  /// 封面图片字节（取不到为 null）与其扩展名。
+  final List<int>? coverBytes;
+  final String? coverExtension;
 }
 
 /// EPUB 2 / 3 导入。
@@ -109,11 +115,27 @@ class EpubImporter {
 
     if (chapters.isEmpty) throw const EpubException('EPUB 中没有可读取的正文');
 
+    // 封面：EPUB3 的 properties="cover-image"、EPUB2 的 meta[name=cover]、
+    // guide 的 reference[type=cover]，最后按 id/href 里含 cover 的图片兜底。
+    final coverItem = _findCoverItem(opfXml, manifest, opfDir);
+    List<int>? coverBytes;
+    String? coverExtension;
+    if (coverItem != null) {
+      final coverFile = files[_normalize(coverItem.path)];
+      final bytes = coverFile?.content;
+      if (bytes != null && bytes.isNotEmpty) {
+        coverBytes = bytes;
+        coverExtension = _imageExtension(coverItem);
+      }
+    }
+
     return EpubBook(
       title: metadata.title,
       author: metadata.author,
       content: content.toString(),
       chapters: chapters,
+      coverBytes: coverBytes,
+      coverExtension: coverExtension,
     );
   }
 
@@ -142,6 +164,59 @@ class EpubImporter {
     }
 
     return (title: pick('title'), author: pick('creator'));
+  }
+
+  /// 定位封面图片对应的 manifest 项。
+  static _ManifestItem? _findCoverItem(
+    XmlDocument opf,
+    Map<String, _ManifestItem> manifest,
+    String opfDir,
+  ) {
+    // EPUB3
+    for (final item in manifest.values) {
+      if (item.properties
+          .split(RegExp(r'\s+'))
+          .contains('cover-image')) {
+        return item;
+      }
+    }
+    // EPUB2：<meta name="cover" content="itemId"/>
+    for (final e in opf.findAllElements('*')) {
+      if (e.name.local != 'meta') continue;
+      if ((e.getAttribute('name') ?? '').toLowerCase() != 'cover') continue;
+      final id = e.getAttribute('content');
+      if (id != null && manifest.containsKey(id)) return manifest[id];
+    }
+    // guide：<reference type="cover" href="..."/>
+    for (final e in opf.findAllElements('*')) {
+      if (e.name.local != 'reference') continue;
+      if (!(e.getAttribute('type') ?? '').toLowerCase().contains('cover')) continue;
+      final href = e.getAttribute('href');
+      if (href == null) continue;
+      final path = _resolve(opfDir, href);
+      for (final item in manifest.values) {
+        if (item.path == path) return item;
+      }
+    }
+    // 兜底：图片且 id / href 含 cover
+    for (final item in manifest.values) {
+      if (!item.mediaType.startsWith('image/')) continue;
+      if ('${item.id} ${item.path}'.toLowerCase().contains('cover')) return item;
+    }
+    return null;
+  }
+
+  static String? _imageExtension(_ManifestItem item) {
+    final mediaType = item.mediaType.toLowerCase();
+    if (mediaType.contains('png')) return 'png';
+    if (mediaType.contains('gif')) return 'gif';
+    if (mediaType.contains('webp')) return 'webp';
+    if (mediaType.contains('jpeg') || mediaType.contains('jpg')) return 'jpg';
+    final path = item.path.toLowerCase();
+    for (final ext in ['png', 'gif', 'webp', 'jpg', 'jpeg']) {
+      if (path.endsWith('.$ext')) return ext == 'jpeg' ? 'jpg' : ext;
+    }
+    return 'jpg';
   }
 
   static Map<String, _ManifestItem> _readManifest(XmlDocument opf, String opfDir) {

@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../models/book.dart';
 
-/// 无封面时按书名生成的渐变封面，风格贴近原版的纯色字面封面。
+/// 书籍封面：优先显示导入时解析出的封面图片，否则按书名生成渐变封面
+/// （风格贴近原版的纯色字面封面）。
 class BookCover extends StatelessWidget {
   const BookCover({
     super.key,
@@ -34,22 +37,50 @@ class BookCover extends StatelessWidget {
     return _palette[hash % _palette.length];
   }
 
+  bool get _hasCoverImage {
+    final path = book.coverPath;
+    if (path == null || path.isEmpty) return false;
+    return File(path).existsSync();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final colors = _colors;
+    final child = _hasCoverImage
+        ? Image.file(
+            File(book.coverPath!),
+            width: width,
+            height: height,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => _placeholder(),
+          )
+        : _placeholder();
     return Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(borderRadius),
+        boxShadow: const [
+          BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _placeholder() {
+    final colors = _colors;
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: colors,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        boxShadow: const [
-          BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2)),
-        ],
       ),
       padding: const EdgeInsets.all(8),
       child: Column(
