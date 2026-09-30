@@ -8,6 +8,12 @@ class AppSettings {
   String tocRulePattern;
   bool autoBackup;
 
+  /// 竖屏底部标签是否显示文字（默认只显示图标）。
+  bool portraitLabels;
+
+  /// 横屏左侧标签栏是否展开为图标 + 文字（默认只显示图标）。
+  bool landscapeExpanded;
+
   AppSettings({
     this.themeIndex = 0,
     this.gridLayout = true,
@@ -15,6 +21,8 @@ class AppSettings {
     this.sortMode = 'recent',
     this.tocRulePattern = '',
     this.autoBackup = true,
+    this.portraitLabels = false,
+    this.landscapeExpanded = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -24,6 +32,8 @@ class AppSettings {
     'sortMode': sortMode,
     'tocRulePattern': tocRulePattern,
     'autoBackup': autoBackup,
+    'portraitLabels': portraitLabels,
+    'landscapeExpanded': landscapeExpanded,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -33,6 +43,8 @@ class AppSettings {
     sortMode: json['sortMode'] as String? ?? 'recent',
     tocRulePattern: json['tocRulePattern'] as String? ?? '',
     autoBackup: json['autoBackup'] as bool? ?? true,
+    portraitLabels: json['portraitLabels'] as bool? ?? false,
+    landscapeExpanded: json['landscapeExpanded'] as bool? ?? false,
   );
 }
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'pages/shelf_page.dart';
+import 'pages/home_shell.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
 
@@ -41,6 +41,6 @@ class RootPage extends StatelessWidget {
     if (!state.ready) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return const ShelfPage();
+    return const HomeShell();
   }
 }

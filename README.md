@@ -8,7 +8,12 @@
 已实现：
 
 - **书架**：网格 / 列表切换、每行列数、按最近阅读 / 书名 / 作者 / 加入时间排序、书名作者搜索、长按操作菜单
-- **本地导入**：TXT 导入，UTF-8 / UTF-8 BOM / GBK 自动识别，按章节标题自动切分（会过滤正文中误匹配的句子）
+- **本地导入**：TXT 与 EPUB 2 / 3
+  - TXT：UTF-8 / UTF-8 BOM / GBK 自动识别，按章节标题切分（会过滤正文中误匹配的句子），导入时按清理规则自动做格式清理
+  - EPUB：解析 container.xml → OPF → spine，目录兼容 EPUB3 的 `nav.xhtml` 与 EPUB2 的 NCX，按 spine 顺序抽取正文并保留段落
+- **TXT 格式清理**：内置规则参考 Legado 的替换净化（去 BOM/零宽字符、去行首行尾空白、合并连续空行、统一省略号、去除广告行、段落合并等），可在设置里逐条启停或恢复默认
+- **导航**：标签页 + 内容。竖屏标签在底部（可切换图标 / 图标 + 文字，默认图标）；横屏标签在左侧，默认只显示图标，点左上角按钮展开为图标 + 文字
+- **主题**：浅色 / 深色两套默认主题由品牌色生成（取自 https://wzml.cc.cd/logo 的前景颜色 `#76DFA1`），另保留默认 / 典雅蓝 / 黑白 / A屏黑
 - **阅读器**：覆盖 / 滑动 / 滚动 / 无动画四种翻页方式；点击左右三分之一翻页、中间呼出菜单
 - **排版**：字号、行距、字距、段距、加粗可按需调整；内置 6 套排版预设（数值取自原版默认数据）
 - **阅读设置**：夜间模式、亮度调节、页眉页脚内容自由组合（无 / 书名 / 章节名 / 页码 / 进度 / 时间）
@@ -33,6 +38,7 @@ library.json                    书架索引（含 format 与 version 字段）
 settings.json                   应用设置
 reader_settings.json            阅读设置
 webdav.json                     WebDAV 配置
+cleaning_rules.json             TXT 格式清理规则
 books/<bookId>/chapters.json    章节目录（按字符区间定位）
 books/<bookId>/content.txt      书籍正文
 ```
@@ -95,15 +101,16 @@ flutter build linux --release    # Linux 桌面
 lib/
   main.dart                 应用入口与主题装配
   models/                   数据模型（书籍、章节、阅读设置、应用设置）
-  services/                 存储、导入、备份、WebDAV、同步
+  services/                 存储、导入（TXT / EPUB）、文本清理、备份、WebDAV、同步
   state/                    全局状态（书架、设置、同步）
   reader/                   阅读器界面与分页引擎
-  pages/                    书架页、设置页、WebDAV 页
+  pages/                    应用外壳（标签页 + 内容）、书架页、设置页、WebDAV 页
   widgets/                  通用组件
   theme/                    主题配色与中文字形回退
 test/                       单元测试（导入切分、分页、备份往返）
 .github/workflows/ci.yml 分析与构建工作流（Android APK、Linux 桌面 + AppImage）
 packaging/linux/             AppImage 打包脚本、桌面项与图标
+packaging/icon/              图标生成脚本（极简黑白书本）
 ```
 
 ## 来源与致谢
@@ -113,6 +120,8 @@ packaging/linux/             AppImage 打包脚本、桌面项与图标
 翻页方式（覆盖 / 滑动 / 滚动 / 无动画）等交互设计，均参考了该项目的实现与默认数据。
 
 Legado 以 GPL-3.0 发布，本项目沿用同一许可证，并保留其原始版权声明。
+
+品牌色取自 https://wzml.cc.cd/logo 的前景颜色 `#76DFA1`，浅色与深色主题都由它生成。
 
 ## 许可证
 

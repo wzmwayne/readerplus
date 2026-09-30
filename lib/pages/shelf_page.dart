@@ -8,7 +8,6 @@ import '../models/book.dart';
 import '../reader/reader_page.dart';
 import '../state/app_state.dart';
 import '../widgets/book_cover.dart';
-import 'settings_page.dart';
 
 /// 书架：网格 / 列表两种布局，长按书籍弹出操作菜单。
 class ShelfPage extends StatefulWidget {
@@ -21,18 +20,18 @@ class ShelfPage extends StatefulWidget {
 class _ShelfPageState extends State<ShelfPage> {
   String _keyword = '';
 
-  static const _txtTypeGroup = XTypeGroup(
-    label: '文本文件',
-    extensions: ['txt'],
-    mimeTypes: ['text/plain'],
+  static const _bookTypeGroup = XTypeGroup(
+    label: '电子书',
+    extensions: ['txt', 'epub'],
+    mimeTypes: ['text/plain', 'application/epub+zip'],
   );
 
-  Future<void> _importTxt() async {
+  Future<void> _importBook() async {
     final state = context.read<AppState>();
     try {
-      final file = await openFile(acceptedTypeGroups: const [_txtTypeGroup]);
+      final file = await openFile(acceptedTypeGroups: const [_bookTypeGroup]);
       if (file == null) return;
-      await state.importTxt(File(file.path));
+      await state.importBook(File(file.path));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导入失败：$e')));
@@ -61,16 +60,9 @@ class _ShelfPageState extends State<ShelfPage> {
         title: const Text('书架'),
         actions: [
           IconButton(
-            tooltip: '导入本地 TXT',
+            tooltip: '导入本地书籍（TXT / EPUB）',
             icon: const Icon(Icons.add),
-            onPressed: _importTxt,
-          ),
-          IconButton(
-            tooltip: '设置',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsPage()),
-            ),
+            onPressed: _importBook,
           ),
         ],
         bottom: PreferredSize(

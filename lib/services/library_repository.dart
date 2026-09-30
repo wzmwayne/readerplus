@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import '../models/book.dart';
+import 'epub_importer.dart';
 import 'storage.dart';
+import 'text_cleaner.dart';
 import 'txt_importer.dart';
 
 /// 书架数据访问：书籍索引、目录、正文的读写与导入。
@@ -70,23 +72,57 @@ class LibraryRepository {
   Future<void> saveContent(String bookId, String content) =>
       storage.writeText(_contentPath(bookId), content);
 
-  /// 导入本地 TXT。
-  Future<Book> importTxt(File file) async {
-    final parsed = await TxtImporter.parseFile(file);
+  /// 按扩展名分派导入：`.epub` 走 EPUB 解析，其余按 TXT 处理。
+  Future<Book> importBook(File file, {List<CleanRule>? cleanRules}) async {
+    final path = file.path.toLowerCase();
+    if (path.endsWith('.epub')) return importEpub(file);
+    return importTxt(file, cleanRules: cleanRules);
+  }
+
+  /// 导入本地 TXT（含格式清理）。
+  Future<Book> importTxt(File file, {List<CleanRule>? cleanRules}) async {
+    final parsed = await TxtImporter.parseFile(file, cleanRules: cleanRules);
     final meta = TxtImporter.guessMeta(file, parsed.content);
     final book = Book(
       id: Book.newId(),
-      title: meta.title.isEmpty ? '未命名' : meta.title,
+      title: meta.title.isEmpty ? _titleFromPath(file) : meta.title,
       author: meta.author,
       originalPath: file.path,
       charCount: parsed.content.length,
       chapterCount: parsed.chapters.length,
     );
-    await saveContent(book.id, parsed.content);
-    await saveChapters(book.id, parsed.chapters);
+    await _persist(book, parsed.content, parsed.chapters);
+    return book;
+  }
+
+  /// 导入本地 EPUB 2 / 3。
+  Future<Book> importEpub(File file) async {
+    final parsed = EpubImporter.parse(await file.readAsBytes());
+    final book = Book(
+      id: Book.newId(),
+      title: parsed.title.isEmpty ? _titleFromPath(file) : parsed.title,
+      author: parsed.author,
+      originalPath: file.path,
+      charCount: parsed.content.length,
+      chapterCount: parsed.chapters.length,
+    );
+    await _persist(book, parsed.content, parsed.chapters);
+    return book;
+  }
+
+  Future<void> _persist(Book book, String content, List<Chapter> chapters) async {
+    await saveContent(book.id, content);
+    await saveChapters(book.id, chapters);
     books.add(book);
     await save();
-    return book;
+  }
+
+  /// 文件名去掉扩展名后作为兜底书名。
+  String _titleFromPath(File file) {
+    final name = file.uri.pathSegments.last;
+    final dot = name.lastIndexOf('.');
+    final title = (dot > 0 ? name.substring(0, dot) : name).trim();
+    return title.isEmpty ? '未命名' : title;
   }
 
   Future<void> deleteBook(String id) async {

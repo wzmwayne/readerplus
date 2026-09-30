@@ -9,6 +9,7 @@ import '../services/backup_service.dart';
 import '../services/library_repository.dart';
 import '../services/storage.dart';
 import '../services/sync_service.dart';
+import '../services/text_cleaner.dart';
 
 /// 全局状态：书架、设置、同步。
 class AppState extends ChangeNotifier {
@@ -22,6 +23,9 @@ class AppState extends ChangeNotifier {
   AppSettings settings = AppSettings();
   ReaderSettings readerSettings = ReaderSettings();
   WebDavConfig webdav = WebDavConfig();
+
+  /// TXT 导入时的格式清理规则（内置规则 + 用户自定义）。
+  List<CleanRule> cleanRules = TextCleaner.defaultRules();
 
   bool ready = false;
   bool busy = false;
@@ -49,9 +53,47 @@ class AppState extends ChangeNotifier {
     }
     final webdavJson = await storage.readJson('webdav.json');
     if (webdavJson != null) webdav = WebDavConfig.fromJson(webdavJson);
+    final rulesJson = await storage.readJson('cleaning_rules.json');
+    if (rulesJson != null) {
+      cleanRules = _mergeCleanRules(rulesJson);
+    } else {
+      await saveCleanRules();
+    }
 
     ready = true;
     notifyListeners();
+  }
+
+  /// 用内置规则为准合并已存配置：保留内置规则及其启停状态，并追加用户自定义规则。
+  List<CleanRule> _mergeCleanRules(Map<String, dynamic> json) {
+    final stored = ((json['rules'] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(CleanRule.fromJson)
+        .toList();
+    final byName = {for (final rule in stored) rule.name: rule};
+    final merged = <CleanRule>[];
+    for (final rule in TextCleaner.defaultRules()) {
+      final saved = byName.remove(rule.name);
+      if (saved != null) rule.enabled = saved.enabled;
+      merged.add(rule);
+    }
+    merged.addAll(byName.values.where((r) => !r.builtin));
+    return merged;
+  }
+
+  Future<void> saveCleanRules() async {
+    await storage.writeJson('cleaning_rules.json', {
+      'format': 'wzmwayne.reader.cleaning_rules',
+      'version': 1,
+      'rules': cleanRules.map((r) => r.toJson()).toList(),
+    });
+    notifyListeners();
+  }
+
+  Future<void> resetCleanRules() async {
+    cleanRules = TextCleaner.defaultRules();
+    await saveCleanRules();
+    _notify('清理规则已恢复默认');
   }
 
   void _notify(String? text) {
@@ -79,11 +121,12 @@ class AppState extends ChangeNotifier {
     await saveSettings();
   }
 
-  Future<Book?> importTxt(File file) async {
+  /// 导入本地书籍：按扩展名自动分派 TXT / EPUB。
+  Future<Book?> importBook(File file) async {
     try {
       busy = true;
       notifyListeners();
-      final book = await library.importTxt(file);
+      final book = await library.importBook(file, cleanRules: cleanRules);
       _notify('已导入《${book.title}》，共 ${book.chapterCount} 章');
       return book;
     } catch (e) {

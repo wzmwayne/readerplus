@@ -1,46 +1,69 @@
 import 'package:flutter/material.dart';
 
-/// 整体配色主题，取自原版 themeConfig 默认数据。
+/// 品牌色：取自 https://wzml.cc.cd/logo 的前景颜色（该 logo 是 5×4 的像素标记，
+/// 主色 `fill="#76DFA1"`，即 rgb(118, 223, 161)）。
+///
+/// 浅色与深色两套默认主题都以它作为种子色生成整套配色。
+const Color kBrandColor = Color(0xFF76DFA1);
+
+/// 应用整体配色主题。
+///
+/// [seeded] 为 true 时（默认浅色/深色主题），backgroundColor 等由
+/// Material 3 的种子色方案推导；为基础主题时使用显式给定的颜色。
 class AppTheme {
   const AppTheme({
     required this.name,
     required this.primary,
-    required this.accent,
-    required this.background,
-    required this.bottomBar,
+    this.accent,
+    this.background,
+    this.bottomBar,
     this.isNight = false,
+    this.seeded = false,
   });
 
   final String name;
   final Color primary;
-  final Color accent;
-  final Color background;
-  final Color bottomBar;
+  final Color? accent;
+  final Color? background;
+  final Color? bottomBar;
   final bool isNight;
 
-  Color get onBackground => isNight ? const Color(0xFFE0E0E0) : const Color(0xFF212121);
+  /// 是否由种子色生成整套配色。
+  final bool seeded;
 
-  ThemeData toThemeData() {
-    final scheme = ColorScheme.fromSeed(
+  ColorScheme toScheme() {
+    final base = ColorScheme.fromSeed(
       seedColor: primary,
       brightness: isNight ? Brightness.dark : Brightness.light,
-    ).copyWith(
-      primary: primary,
-      secondary: accent,
-      surface: background,
     );
+    if (seeded) return base;
+    return base.copyWith(
+      primary: primary,
+      secondary: accent ?? base.secondary,
+      surface: background ?? base.surface,
+    );
+  }
+
+  ThemeData toThemeData() {
+    final scheme = toScheme();
+    final background = seeded ? scheme.surface : (this.background ?? scheme.surface);
+    final bar = seeded
+        ? scheme.surfaceContainerHigh
+        : (bottomBar ?? scheme.surfaceContainerHigh);
+    final onBar = isNight ? Colors.white : Colors.black87;
+
     final base = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: background,
       appBarTheme: AppBarTheme(
-        backgroundColor: bottomBar,
-        foregroundColor: isNight ? Colors.white : Colors.black87,
+        backgroundColor: bar,
+        foregroundColor: onBar,
         elevation: 0,
       ),
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: bottomBar,
-      ),
+      navigationBarTheme: NavigationBarThemeData(backgroundColor: bar),
+      navigationRailTheme: NavigationRailThemeData(backgroundColor: bar),
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(backgroundColor: bar),
       splashFactory: InkRipple.splashFactory,
     );
     return base.copyWith(
@@ -64,7 +87,10 @@ const List<String> kCjkFontFallback = [
   'Noto Sans SC',
 ];
 
+/// 前两套为由品牌色生成的默认浅色 / 深色主题，随后是若干内置配色。
 const List<AppTheme> kAppThemes = [
+  AppTheme(name: '浅色', primary: kBrandColor, seeded: true),
+  AppTheme(name: '深色', primary: kBrandColor, seeded: true, isNight: true),
   AppTheme(
     name: '默认',
     primary: Color(0xFF795548),

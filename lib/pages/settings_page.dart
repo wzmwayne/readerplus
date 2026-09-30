@@ -42,6 +42,17 @@ class SettingsPage extends StatelessWidget {
               trailing: settings.themeIndex == i ? const Icon(Icons.check) : null,
             ),
           const Divider(),
+          const _SectionTitle('界面'),
+          SwitchListTile(
+            value: settings.portraitLabels,
+            onChanged: (v) {
+              settings.portraitLabels = v;
+              state.saveSettings();
+            },
+            title: const Text('底部标签显示文字'),
+            subtitle: const Text('仅竖屏生效；横屏用左侧标签栏的展开按钮'),
+          ),
+          const Divider(),
           const _SectionTitle('书架'),
           SwitchListTile(
             value: settings.gridLayout,
@@ -83,6 +94,31 @@ class SettingsPage extends StatelessWidget {
                 DropdownMenuItem(value: 'added', child: Text('加入时间')),
               ],
             ),
+          ),
+          const Divider(),
+          const _SectionTitle('TXT 格式清理'),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              '导入 TXT 时按下列规则依次清理正文（规则形式参考 Legado 的替换净化）',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+          for (final rule in state.cleanRules)
+            SwitchListTile(
+              dense: true,
+              value: rule.enabled,
+              onChanged: (v) {
+                rule.enabled = v;
+                state.saveCleanRules();
+              },
+              title: Text(rule.name),
+              subtitle: rule.note.isEmpty ? null : Text(rule.note),
+            ),
+          ListTile(
+            leading: const Icon(Icons.restore),
+            title: const Text('恢复默认清理规则'),
+            onTap: state.resetCleanRules,
           ),
           const Divider(),
           const _SectionTitle('数据与同步'),
