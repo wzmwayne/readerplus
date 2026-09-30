@@ -13,6 +13,7 @@ import '../models/reader_settings.dart';
 import '../state/app_state.dart';
 import '../services/tts/read_aloud_controller.dart';
 import '../widgets/read_aloud_panel.dart';
+import 'page_turn_offsets.dart';
 import 'tts_highlight.dart';
 import '../theme/app_theme.dart';
 import 'chapter_paginator.dart';
@@ -804,23 +805,25 @@ class _ReaderPageState extends State<ReaderPage>
             valueListenable: _drag,
             builder: (context, drag, _) => Stack(
               children: [
+                // 底层：上一页留在原位，被向右移出的当前页露出来
                 if (prevPage != null && drag > 0)
                   Positioned.fill(
                     child: Transform.translate(
-                      offset: Offset(-width + drag, 0),
+                      offset: Offset(coverPrevOffset(drag), 0),
                       child: prevPage,
                     ),
                   ),
                 Positioned.fill(
                   child: Transform.translate(
-                    offset: Offset(drag, 0),
+                    offset: Offset(coverCurrentOffset(drag), 0),
                     child: currentPage,
                   ),
                 ),
+                // 上层：下一页从右侧盖上来
                 if (nextPage != null && drag < 0)
                   Positioned.fill(
                     child: Transform.translate(
-                      offset: Offset(width + drag, 0),
+                      offset: Offset(coverNextOffset(drag, width), 0),
                       child: nextPage,
                     ),
                   ),
