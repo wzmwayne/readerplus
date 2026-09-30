@@ -35,6 +35,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # 容器内 Flutter SDK 位于 runner 工具缓存（属主不同），需放开 git 安全目录检查
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: '*'
   FLUTTER_VERSION: '3.47.0'
   JAVA_PACKAGE: openjdk-21-jdk-headless
   ANDROID_SDK_ROOT: /opt/android-sdk
