@@ -73,6 +73,14 @@ Run workflow 时选择目标）。依赖全部使用官方源，项目内不含�
 工作流缓存了 Flutter SDK、pub 依赖、Gradle 依赖与构建缓存、整个 Android SDK 目录
 （含 NDK，首次约 1GB）以及 Gradle 发行包，二次编译无需重复下载。
 
+构建策略与版本号：
+
+- 默认只构建 **debug**（Android 仅 arm64，桌面 debug 产物）；勾选 `build_release`
+  才额外构建发行版（Android 多架构 Release APK、桌面 Release + AppImage）
+- 版本号自动生成：版本名 `yymmddhhmmss`（取本次运行开始时间，按北京时间；同一 run 内各 job 一致），
+  Android `versionCode` 为自 2020-01-01 起的分钟数（12 位时间戳会超过 Android 上限 2100000000，
+  故用分钟数，单调递增且远离上限），由 `tool/ci_version.sh` 统一计算
+
 本地构建（可选）需要 x86-64 主机：Android 工具链中的 `aapt2`、`cmake` 官方只提供
 x86-64 版本，aarch64 主机需自行提供 binfmt/qemu 模拟。
 
