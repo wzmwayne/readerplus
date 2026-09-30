@@ -99,7 +99,9 @@ jobs:
       - run: flutter config --no-analytics
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test
+      # 联网用例（真实 Edge TTS 接口）默认排除：外网波动/风控不应影响构建；
+      # 需要时本地执行 flutter test --tags live
+      - run: flutter test --exclude-tags live
 
   android:
     name: Android APK
