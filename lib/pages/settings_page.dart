@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../app_info.dart';
 import '../state/app_state.dart';
+import 'settings_read_aloud_section.dart';
 import '../theme/app_theme.dart';
 import 'webdav_page.dart';
 
@@ -121,6 +122,8 @@ class SettingsPage extends StatelessWidget {
             title: const Text('恢复默认清理规则'),
             onTap: state.resetCleanRules,
           ),
+          const Divider(),
+          const SettingsReadAloudSection(),
           const Divider(),
           const _SectionTitle('数据与同步'),
           ListTile(

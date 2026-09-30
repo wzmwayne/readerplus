@@ -24,6 +24,15 @@ class TtsVoice {
   /// 中文音色（zh-CN / zh-HK / zh-TW 等）。
   bool get isChinese => locale.toLowerCase().startsWith('zh');
 
+  /// 仅凭 shortName 推导展示名，例如「Xiaoxiao · zh-CN」（无需联网）。
+  static String labelOf(String shortName) {
+    final parts = shortName.split('-');
+    if (parts.length < 3) return shortName;
+    final locale = '${parts[0]}-${parts[1]}';
+    final name = parts.sublist(2).join('-').replaceAll('Neural', '');
+    return '$name · $locale';
+  }
+
   /// 展示名，例如「晓晓（女声）· zh-CN」。
   String get label {
     final short = shortName.split('-').last.replaceAll('Neural', '');
@@ -239,6 +248,57 @@ class EdgeTtsClient {
     }();
 
     return controller.stream;
+  }
+
+  /// 内置中文音色：联网失败时兜底，保证音色选择与试听始终可用。
+  static const List<({String shortName, String gender})> builtinChineseVoices = [
+    (shortName: 'zh-CN-XiaoxiaoNeural', gender: 'Female'),
+    (shortName: 'zh-CN-XiaoyiNeural', gender: 'Female'),
+    (shortName: 'zh-CN-YunxiNeural', gender: 'Male'),
+    (shortName: 'zh-CN-YunjianNeural', gender: 'Male'),
+    (shortName: 'zh-CN-YunyangNeural', gender: 'Male'),
+    (shortName: 'zh-CN-YunxiaNeural', gender: 'Male'),
+    (shortName: 'zh-CN-liaoning-XiaobeiNeural', gender: 'Female'),
+    (shortName: 'zh-CN-shaanxi-XiaoniNeural', gender: 'Female'),
+    (shortName: 'zh-HK-HiuMaanNeural', gender: 'Female'),
+    (shortName: 'zh-HK-HiuGaaiNeural', gender: 'Female'),
+    (shortName: 'zh-HK-WanLungNeural', gender: 'Male'),
+    (shortName: 'zh-TW-HsiaoChenNeural', gender: 'Female'),
+    (shortName: 'zh-TW-HsiaoYuNeural', gender: 'Female'),
+    (shortName: 'zh-TW-YunJheNeural', gender: 'Male'),
+  ];
+
+  /// 内置音色列表（[TtsVoice] 形式）。
+  static List<TtsVoice> get builtinVoices => builtinChineseVoices
+      .map(
+        (v) => TtsVoice(
+          shortName: v.shortName,
+          locale: v.shortName.split('-').take(2).join('-'),
+          gender: v.gender,
+          friendlyName: v.shortName,
+        ),
+      )
+      .toList();
+
+  static List<TtsVoice>? _cachedVoices;
+
+  /// 上次成功拉取的音色（可空）。
+  static List<TtsVoice>? get cachedVoices => _cachedVoices;
+
+  /// 拉取音色列表并筛出中文音色；失败时回退到内置列表。
+  static Future<List<TtsVoice>> loadChineseVoices({
+    bool forceRefresh = false,
+    HttpClient? httpClient,
+  }) async {
+    if (!forceRefresh && _cachedVoices != null) return _cachedVoices!;
+    try {
+      final voices = await fetchChineseVoices(httpClient: httpClient);
+      if (voices.isNotEmpty) {
+        _cachedVoices = voices;
+        return voices;
+      }
+    } catch (_) {}
+    return _cachedVoices ?? builtinVoices;
   }
 
   /// 拉取音色列表并筛出中文音色。

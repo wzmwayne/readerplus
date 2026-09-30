@@ -12,6 +12,7 @@ import '../models/book.dart';
 import '../models/reader_settings.dart';
 import '../state/app_state.dart';
 import '../services/tts/read_aloud_controller.dart';
+import '../widgets/read_aloud_panel.dart';
 import 'tts_highlight.dart';
 import '../theme/app_theme.dart';
 import 'chapter_paginator.dart';
@@ -93,7 +94,7 @@ class _ReaderPageState extends State<ReaderPage>
     final rs = context.read<AppState>().readerSettings;
     controller
       ..voice = rs.ttsVoice
-      ..rate = rs.ttsRate;
+      ..rate = rs.ttsRateString;
     _ttsInstance = controller;
     return controller;
   }
@@ -513,6 +514,16 @@ class _ReaderPageState extends State<ReaderPage>
     unawaited(_startPageRead());
   }
 
+  /// 音色/语速变化后，从第 [at] 句重读当前页。
+  Future<void> _restartReadFrom(int at) async {
+    final text = _pagePlainText;
+    if (text.trim().isEmpty) return;
+    final tts = _tts;
+    tts.onPageFinished = _onPageReadFinished;
+    await tts.start(text, at: at);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _stopReadAloud() async {
     if (!mounted) return;
     setState(() => _autoRead = false);
@@ -618,6 +629,13 @@ class _ReaderPageState extends State<ReaderPage>
         Text(
           '${_tts.index + 1}/${_tts.segments.length}',
           style: const TextStyle(color: Colors.white54, fontSize: 11),
+        ),
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          tooltip: '朗读设置',
+          icon: const Icon(Icons.tune, color: Colors.white),
+          onPressed: () =>
+              setState(() => _panel = _panel == 'read' ? null : 'read'),
         ),
         IconButton(
           visualDensity: VisualDensity.compact,
@@ -989,7 +1007,15 @@ class _ReaderPageState extends State<ReaderPage>
                   children: [
                     _menuTop(state),
                     const Spacer(),
-                    if (_panel != null) _panelBody(rs, state),
+                    if (_panel != null)
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: _viewport.height * 0.5,
+                        ),
+                        child: SingleChildScrollView(
+                          child: _panelBody(rs, state),
+                        ),
+                      ),
                     _menuBottom(rs, state),
                   ],
                 ),
@@ -1318,6 +1344,15 @@ class _ReaderPageState extends State<ReaderPage>
         return _pagePanel(rs, state);
       case 'bright':
         return _brightPanel(rs, state);
+      case 'read':
+        // 与其他面板一致的深色底，保证在正文之上可读
+        return _panelMaterial(
+          child: ReadAloudSettingsPanel(
+            controller: _tts,
+            onDark: true,
+            onRestart: _autoRead ? _restartReadFrom : null,
+          ),
+        );
       default:
         return const SizedBox.shrink();
     }

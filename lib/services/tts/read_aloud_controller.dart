@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -175,6 +176,9 @@ class ReadAloudController extends ChangeNotifier {
   /// 一页播完时回调（用于自动翻页）。
   VoidCallback? onPageFinished;
 
+  /// 最近一次失败原因（合成/播放），成功后清空。
+  String? lastError;
+
   List<SentenceSegment> get segments => List.unmodifiable(_segments);
   List<String> get sentences =>
       _segments.map((segment) => segment.text).toList();
@@ -195,14 +199,15 @@ class ReadAloudController extends ChangeNotifier {
   int get preloadedCount =>
       _jobs.where((j) => j.synthesis != null).length;
 
-  Future<void> start(String text) async {
+  Future<void> start(String text, {int at = 0}) async {
     await stop();
     _segments
       ..clear()
       ..addAll(splitSentenceSegments(text));
     _active = _segments.isNotEmpty;
     _paused = false;
-    _index = 0;
+    lastError = null;
+    _index = at.clamp(0, math.max(0, _segments.length - 1));
     if (!_active) {
       notifyListeners();
       return;
@@ -216,7 +221,7 @@ class ReadAloudController extends ChangeNotifier {
       ]);
     _pumpPreload();
     notifyListeners();
-    unawaited(_playFrom(0));
+    unawaited(_playFrom(_index));
   }
 
   Future<void> pause() async {
@@ -273,7 +278,9 @@ class ReadAloudController extends ChangeNotifier {
         if (!job.firstChunk.isCompleted) job.firstChunk.complete();
       }
     } catch (e) {
+      lastError = '合成失败：$e';
       if (kDebugMode) debugPrint('[tts] 合成失败：$e');
+      notifyListeners();
     } finally {
       _server.finishSlot(job.slotId);
       if (!job.firstChunk.isCompleted) job.firstChunk.complete();

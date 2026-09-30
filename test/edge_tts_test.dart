@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader/models/reader_settings.dart';
 import 'package:reader/services/tts/edge_tts_client.dart';
 
 void main() {
@@ -95,6 +96,52 @@ void main() {
 
     test('空列表安全', () {
       expect(TtsVoice.parseChinese(const []), isEmpty);
+    });
+  });
+
+  group('音色展示名与内置兜底', () {
+    test('仅凭 shortName 推导展示名（无需联网）', () {
+      expect(TtsVoice.labelOf('zh-CN-XiaoxiaoNeural'), 'Xiaoxiao · zh-CN');
+      expect(TtsVoice.labelOf('zh-TW-YunJheNeural'), 'YunJhe · zh-TW');
+      expect(TtsVoice.labelOf('bad-name'), 'bad-name');
+      expect(TtsVoice.labelOf(''), '');
+    });
+
+    test('内置中文音色全部为 zh-*，可离线选择', () {
+      final voices = EdgeTtsClient.builtinVoices;
+      expect(voices.length, EdgeTtsClient.builtinChineseVoices.length);
+      expect(voices.every((v) => v.isChinese), isTrue);
+      expect(
+        voices.any((v) => v.shortName == 'zh-CN-XiaoxiaoNeural'),
+        isTrue,
+      );
+      expect(voices.first.locale, 'zh-CN');
+    });
+  });
+
+  group('朗读语速', () {
+    test('默认正常语速', () {
+      expect(ReaderSettings().ttsRateString, '+0%');
+    });
+
+    test('正负号与百分号格式正确', () {
+      final rs = ReaderSettings();
+      rs.ttsRatePercent = 20;
+      expect(rs.ttsRateString, '+20%');
+      rs.ttsRatePercent = -30;
+      expect(rs.ttsRateString, '-30%');
+      rs.ttsRatePercent = 0;
+      expect(rs.ttsRateString, '+0%');
+    });
+
+    test('随阅读设置一起保存与恢复', () {
+      final rs = ReaderSettings()
+        ..ttsVoice = 'zh-CN-YunxiNeural'
+        ..ttsRatePercent = 40;
+      final restored = ReaderSettings.fromJson(rs.toJson());
+      expect(restored.ttsVoice, 'zh-CN-YunxiNeural');
+      expect(restored.ttsRatePercent, 40);
+      expect(restored.ttsRateString, '+40%');
     });
   });
 }

@@ -193,6 +193,21 @@ void main() {
       expect(finished, 1);
     });
 
+
+    test('可从指定句开始（改音色/语速后从当前句继续）', () async {
+      final controller = ReadAloudController(
+        sink: sink,
+        preloadAhead: 2,
+        synthesize: fakeSynth(log: log),
+      );
+      await controller.start('一。二。三。', at: 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.index, 1);
+      expect(controller.currentSentence, '二。');
+      expect(log, isNot(contains('一。')));
+      expect(log, contains('二。'));
+      await controller.stop();
+    });
     test('停止后不再播放后续句子，也不触发翻页回调', () async {
       final controller = ReadAloudController(
         sink: sink,

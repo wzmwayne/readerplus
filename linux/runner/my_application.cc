@@ -52,7 +52,21 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, "阅读");
   }
 
-  gtk_window_set_default_size(window, 1280, 720);
+  // 允许用环境变量 READERPLUS_WINDOW_SIZE=宽x高 指定初始窗口尺寸
+  // （默认 1280x720 不变），便于小屏设备与自动化布局验证。
+  gint window_width = 1280;
+  gint window_height = 720;
+  const gchar* size_env = g_getenv("READERPLUS_WINDOW_SIZE");
+  if (size_env != nullptr) {
+    gint parsed_width = 0;
+    gint parsed_height = 0;
+    if (sscanf(size_env, "%dx%d", &parsed_width, &parsed_height) == 2 &&
+        parsed_width > 0 && parsed_height > 0) {
+      window_width = parsed_width;
+      window_height = parsed_height;
+    }
+  }
+  gtk_window_set_default_size(window, window_width, window_height);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
