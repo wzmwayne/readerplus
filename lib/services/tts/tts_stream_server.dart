@@ -59,9 +59,22 @@ class TtsStreamServer {
     response.statusCode = HttpStatus.ok;
     response.headers.contentType = ContentType('audio', 'mpeg');
     response.headers.set(HttpHeaders.acceptRangesHeader, 'none');
-    response.headers.chunkedTransferEncoding = true;
-    // 关闭输出缓冲：分片一到就发出，播放器可以边收边播
-    response.bufferOutput = false;
+    // 已整句缓冲（预载命中）时给出长度，播放器可直接把它当普通音频文件播放；
+    // 仍在合成中的句子才走 chunked 流式。
+    final fullyBuffered = slot.isFinished && slot.bytes.isNotEmpty;
+    if (fullyBuffered) {
+      response.headers.contentLength = slot.bytes.length;
+    } else {
+      response.headers.chunkedTransferEncoding = true;
+      // 关闭输出缓冲：分片一到就发出，播放器可以边收边播
+      response.bufferOutput = false;
+    }
+
+    if (fullyBuffered) {
+      response.add(slot.bytes);
+      await response.close();
+      return;
+    }
 
     var sent = 0;
     try {

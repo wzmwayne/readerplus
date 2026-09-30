@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 在线朗读（Edge TTS）与音色列表都需要联网 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="reader"
         android:name="${applicationName}"

@@ -314,8 +314,11 @@ class ReadAloudController extends ChangeNotifier {
     try {
       await _sink.playUrl(_server.urlFor(job.slotId).toString());
     } catch (e) {
-      // 单句播放失败（空流/网络抖动）不应中断整页朗读
+      // 单句播放失败（空流/网络抖动/设备无音频输出）不应中断整页朗读，
+      // 但要把原因记下来，界面可直接看到
+      lastError = '播放失败：$e';
       if (kDebugMode) debugPrint('[tts] 播放失败：$e');
+      notifyListeners();
     }
     job.finished = true;
     _server.disposeSlot(job.slotId);

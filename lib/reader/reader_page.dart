@@ -84,6 +84,16 @@ class _ReaderPageState extends State<ReaderPage>
   final PageController _slideController = PageController();
   final ScrollController _scrollController = ScrollController();
 
+  // 滚动模式：从 _scrollAnchor 章开始惰性渲染到全书末尾，
+  // 因此天然支持章节间连续滚动；用每章的 GlobalKey 跟踪当前位置。
+  int _scrollAnchor = 0;
+  final Map<int, GlobalKey> _scrollKeys = {};
+  final Map<int, List<String>> _paragraphCache = {};
+  int _scrollParagraphIndex = 0;
+  int _scrollTargetChapter = -1;
+  int _scrollTargetParagraph = -1;
+  GlobalKey? _scrollTargetKey;
+
   ReadAloudController? _ttsInstance;
   bool _autoRead = false;
 
@@ -198,6 +208,13 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   double get _bookProgress {
+    if (_rs.pageMode == PageMode.scroll && _chapters.isNotEmpty) {
+      final count = math.max(1, _chapterParagraphs(_chapterIndex).length);
+      return ((_chapterIndex + (_scrollParagraphIndex + 1) / count) /
+              _chapters.length)
+          .clamp(0, 1)
+          .toDouble();
+    }
     final f = _current;
     if (f == null || _chapters.isEmpty) return 0;
     final total = _pagesOfChapter(f.chapter).length;
@@ -284,6 +301,11 @@ class _ReaderPageState extends State<ReaderPage>
     final size = Size(constraints.maxWidth, constraints.maxHeight);
     if (size.isEmpty) return;
     _viewport = size;
+    // 滚动模式不使用分页（章间连续滚动由列表完成），避免重建导致位置跳动
+    if (rs.pageMode == PageMode.scroll) {
+      _paginateSignature = '';
+      return;
+    }
     final signature = [
       size.width.toStringAsFixed(1),
       size.height.toStringAsFixed(1),
@@ -325,12 +347,6 @@ class _ReaderPageState extends State<ReaderPage>
       if (!mounted) return;
       if (rs.pageMode == PageMode.slide && _slideController.hasClients) {
         _slideController.jumpToPage(_flatIndex);
-      }
-      if (rs.pageMode == PageMode.scroll && _scrollController.hasClients) {
-        final offset = anchorLine * _scrollLineHeight;
-        _scrollController.jumpTo(
-          offset.clamp(0, _scrollController.position.maxScrollExtent),
-        );
       }
     });
   }
@@ -407,8 +423,13 @@ class _ReaderPageState extends State<ReaderPage>
       _menuVisible = false;
       _tocVisible = false;
       _drag.value = 0;
+      _paragraphCache.remove(index);
     });
-    _persistProgress();
+    if (_rs.pageMode == PageMode.scroll) {
+      _scheduleScrollJump();
+    } else {
+      _persistProgress();
+    }
   }
 
   void _handleTap(TapUpDetails details, double width) {
@@ -462,6 +483,23 @@ class _ReaderPageState extends State<ReaderPage>
 
   Future<void> _persistProgress() async {
     if (_chapters.isEmpty) return;
+    if (_rs.pageMode == PageMode.scroll) {
+      final rs = _rs;
+      final line = _lineOfParagraph(_chapterIndex, _scrollParagraphIndex, rs);
+      final count = math.max(1, _chapterParagraphs(_chapterIndex).length);
+      final progress = ((_chapterIndex + (_scrollParagraphIndex + 1) / count) /
+              _chapters.length)
+          .clamp(0, 1)
+          .toDouble();
+      await context.read<AppState>().saveProgress(
+        widget.book,
+        _chapterIndex,
+        line,
+        line,
+        progress,
+      );
+      return;
+    }
     final f = _current;
     await context.read<AppState>().saveProgress(
       widget.book,
@@ -723,15 +761,14 @@ class _ReaderPageState extends State<ReaderPage>
           ),
         );
       case PageMode.scroll:
+        final start =
+            _scrollAnchor.clamp(0, math.max(0, _chapters.length - 1)).toInt();
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
           child: NotificationListener<ScrollNotification>(
-            onNotification: (n) {
-              if (n is ScrollEndNotification) _persistProgress();
-              return false;
-            },
-            child: SingleChildScrollView(
+            onNotification: _onScrollNotification,
+            child: ListView.builder(
               controller: _scrollController,
               padding: EdgeInsets.only(
                 left: rs.paddingLeft,
@@ -739,16 +776,9 @@ class _ReaderPageState extends State<ReaderPage>
                 top: rs.paddingTop,
                 bottom: rs.paddingBottom,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final para in _scrollParagraphs())
-                    Padding(
-                      padding: EdgeInsets.only(bottom: rs.paragraphSpacing),
-                      child: Text(para, style: _textStyle(rs)),
-                    ),
-                ],
-              ),
+              itemCount: math.max(0, _chapters.length - start),
+              itemBuilder: (context, index) =>
+                  _chapterSection(rs, start + index),
             ),
           ),
         );
@@ -801,12 +831,136 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
-  List<String> _scrollParagraphs() => _chapterTextOf(_chapterIndex)
-      .split('\n')
-      .map((e) => e.trim())
-      .where((e) => e.isNotEmpty)
-      .map((e) => '${_rs.paragraphIndent}$e')
-      .toList();
+  // ---------------- 滚动模式 ----------------
+
+  /// 某章的段落列表（缓存，避免滚动时反复切分）。
+  List<String> _chapterParagraphs(int chapterIndex) =>
+      _paragraphCache[chapterIndex] ??= _chapterTextOf(chapterIndex)
+          .split('\n')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+
+  double _usableWidth(ReaderSettings rs) =>
+      math.max(1, _viewport.width - rs.paddingLeft - rs.paddingRight);
+
+  /// 估算段落占用的行数（把「行号」进度换算成段落位置用）。
+  int _estimatedLines(String paragraph, ReaderSettings rs, double usableWidth) {
+    final perLine = math.max(
+      1,
+      usableWidth / (rs.textSize + rs.letterSpacing),
+    );
+    return math.max(1, (paragraph.length / perLine).ceil());
+  }
+
+  int _lineOfParagraph(int chapterIndex, int paragraphIndex, ReaderSettings rs) {
+    final paragraphs = _chapterParagraphs(chapterIndex);
+    final usable = _usableWidth(rs);
+    var lines = 0;
+    for (var i = 0; i < paragraphIndex && i < paragraphs.length; i++) {
+      lines += _estimatedLines(paragraphs[i], rs, usable);
+    }
+    return lines;
+  }
+
+  int _paragraphOfLine(int chapterIndex, int line, ReaderSettings rs) {
+    final paragraphs = _chapterParagraphs(chapterIndex);
+    final usable = _usableWidth(rs);
+    var lines = 0;
+    for (var i = 0; i < paragraphs.length; i++) {
+      if (lines >= line) return i;
+      lines += _estimatedLines(paragraphs[i], rs, usable);
+    }
+    return math.max(0, paragraphs.length - 1);
+  }
+
+  /// 把保存的进度定位到视口（进入滚动模式、跳章、打开书时）。
+  void _scheduleScrollJump() {
+    final rs = _rs;
+    final chapter =
+        _chapterIndex.clamp(0, math.max(0, _chapters.length - 1)).toInt();
+    final paragraphs = _chapterParagraphs(chapter);
+    final target = paragraphs.isEmpty
+        ? 0
+        : _paragraphOfLine(chapter, _pendingLine ?? 0, rs);
+    _pendingLine = null;
+    setState(() {
+      _scrollAnchor = chapter;
+      _scrollParagraphIndex = target;
+      _scrollTargetChapter = chapter;
+      _scrollTargetParagraph = target;
+      _scrollTargetKey = GlobalKey();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final targetContext = _scrollTargetKey?.currentContext;
+      if (targetContext != null && mounted) {
+        Scrollable.ensureVisible(targetContext, alignment: 0);
+      }
+    });
+  }
+
+  Widget _chapterSection(ReaderSettings rs, int chapterIndex) {
+    final key = _scrollKeys.putIfAbsent(chapterIndex, () => GlobalKey());
+    final paragraphs = _chapterParagraphs(chapterIndex);
+    return Column(
+      key: key,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < paragraphs.length; i++)
+          Padding(
+            key: (_scrollTargetChapter == chapterIndex &&
+                    _scrollTargetParagraph == i)
+                ? _scrollTargetKey
+                : null,
+            padding: EdgeInsets.only(bottom: rs.paragraphSpacing),
+            child: Text('${rs.paragraphIndent}${paragraphs[i]}',
+                style: _textStyle(rs)),
+          ),
+      ],
+    );
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification ||
+        notification is ScrollEndNotification) {
+      _syncScrollPosition();
+    }
+    if (notification is ScrollEndNotification) _persistProgress();
+    return false;
+  }
+
+  /// 用各章渲染盒的顶边位置判断当前读到哪一章、哪一段。
+  void _syncScrollPosition() {
+    if (_scrollKeys.isEmpty) return;
+    int? bestChapter;
+    var bestTop = double.negativeInfinity;
+    for (final entry in _scrollKeys.entries) {
+      final context = entry.value.currentContext;
+      if (context == null) continue;
+      final box = context.findRenderObject();
+      if (box is! RenderBox || !box.attached) continue;
+      final top = box.localToGlobal(Offset.zero).dy;
+      if (top <= 24 && top > bestTop) {
+        bestTop = top;
+        bestChapter = entry.key;
+      }
+    }
+    if (bestChapter == null) return;
+    final paragraphs = _chapterParagraphs(bestChapter);
+    final lineHeight = _scrollLineHeight;
+    final index = lineHeight <= 0
+        ? 0
+        : ((24 - bestTop) / lineHeight)
+              .floor()
+              .clamp(0, math.max(0, paragraphs.length - 1))
+              .toInt();
+    if (bestChapter != _chapterIndex || index != _scrollParagraphIndex) {
+      setState(() {
+        _chapterIndex = bestChapter!;
+        _scrollParagraphIndex = index;
+        });
+    }
+  }
 
   Widget _pageFrame(ReaderSettings rs, int flatIndex) {
     final flat =
@@ -899,6 +1053,8 @@ class _ReaderPageState extends State<ReaderPage>
       case TipMode.chapterName:
         return _chapters.isEmpty ? '' : _chapters[chapter].title;
       case TipMode.pageIndex:
+        // 阅读时不显示行号；滚动模式没有「页」，该栏留空
+        if (_rs.pageMode == PageMode.scroll) return '';
         final total = _pagesOfChapter(chapter).length;
         return '${(flat?.pageInChapter ?? 0) + 1}/$total';
       case TipMode.progress:
@@ -1556,6 +1712,14 @@ class _ReaderPageState extends State<ReaderPage>
                 _drag.value = 0;
               });
               state.saveReaderSettings();
+              if (mode == PageMode.scroll) {
+                _pendingLine = _lineOfParagraph(
+                  _chapterIndex,
+                  math.max(0, _scrollParagraphIndex),
+                  rs,
+                );
+                _scheduleScrollJump();
+              }
             },
           ),
       ],

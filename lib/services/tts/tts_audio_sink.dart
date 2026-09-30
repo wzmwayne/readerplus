@@ -37,9 +37,12 @@ class AudioPlayersSink implements TtsAudioSink {
   @override
   Future<void> playUrl(String url) async {
     _playing = true;
-    await _player.play(UrlSource(url));
-    await _player.onPlayerComplete.first;
-    _playing = false;
+    try {
+      await _player.play(UrlSource(url, mimeType: 'audio/mpeg'));
+      await _player.onPlayerComplete.first;
+    } finally {
+      _playing = false;
+    }
   }
 
   @override
