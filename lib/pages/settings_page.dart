@@ -4,6 +4,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../app_info.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import 'webdav_page.dart';
@@ -150,12 +151,30 @@ class SettingsPage extends StatelessWidget {
           const Divider(),
           const _SectionTitle('关于'),
           const ListTile(
-            title: Text('版本'),
-            trailing: Text('1.0.0'),
+            title: Text('阅读 readerplus'),
+            subtitle: Text('多平台小说阅读器：Android 与 Linux 桌面共用一套自适应界面'),
+          ),
+          ListTile(
+            title: const Text('版本'),
+            subtitle: Text(appVersionLabel),
           ),
           const ListTile(
             title: Text('数据格式'),
-            subtitle: Text('自定义 JSON + zip 备份，保存于应用私有目录'),
+            subtitle: Text(
+              '自定义 JSON（library / settings / reader_settings / webdav / cleaning_rules）'
+              '＋ zip 备份包，保存在应用私有目录',
+            ),
+          ),
+          const ListTile(
+            title: Text('来源与致谢'),
+            subtitle: Text(
+              '部分设计思路来自开源项目 Legado（开源阅读）：排版预设数值、主题配色、'
+              '页眉页脚与翻页方式等交互设计；品牌色取自 wzml.cc.cd/logo 的前景颜色 #76DFA1',
+            ),
+          ),
+          const ListTile(
+            title: Text('许可'),
+            subtitle: Text('GPL-3.0，保留 Legado 原始版权声明，详见仓库 LICENSE'),
           ),
           const SizedBox(height: 24),
         ],

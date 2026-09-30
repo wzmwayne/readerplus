@@ -96,9 +96,11 @@ class _ShelfPageState extends State<ShelfPage> {
         const Icon(Icons.menu_book_outlined, size: 64, color: Colors.black26),
         const SizedBox(height: 12),
         const Text('书架还是空的'),
+        const SizedBox(height: 2),
+        const Text('支持 TXT（UTF-8 / GBK）与 EPUB 2 / 3', style: TextStyle(fontSize: 11, color: Colors.black38)),
         const SizedBox(height: 4),
         Text(
-          '点击右上角 + 导入本地 TXT 文件',
+          '点击右上角 + 导入本地 TXT / EPUB 文件',
           style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
         ),
       ],

@@ -9,6 +9,18 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    signingConfigs {
+        // 固定签名：使用仓库内自带的 debug.keystore，保证每次构建签名一致。
+        // 默认行为是每台机器各自生成 debug.keystore，CI 容器每次都是新的 → 签名每次都变。
+        // 注意：这是调试密钥，正式分发前需替换为自己的发布密钥。
+        create("fixed") {
+            storeFile = file("../debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -30,11 +42,17 @@ android {
     }
 
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+        debug {
+            signingConfig = signingConfigs.getByName("fixed")
         }
+        release {
+            // 发行版沿用调试密钥（Flutter 模板默认行为），仅用于自测分发；
+            // 正式发布请替换为自己的发布密钥。
+            signingConfig = signingConfigs.getByName("fixed")
+        }
+        // Flutter 插件会创建 profile 变体，默认同样落在自动生成的 debug.keystore 上，
+        // 这里一并固定，保证任何构建类型的签名都一致。
+        maybeCreate("profile").signingConfig = signingConfigs.getByName("fixed")
     }
 }
 

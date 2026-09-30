@@ -409,8 +409,9 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
                     ),
                   ),
                 ),
-              if (_tocVisible) _buildToc(rs),
               _buildMenu(rs, state, isLandscape: isLandscape),
+              // 目录放在最上层（z 序高于左右侧栏）
+              if (_tocVisible) _buildToc(rs),
             ],
           );
         },
@@ -616,6 +617,7 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     }
   }
 
+  /// 目录抽屉：z 序在左右侧栏之上，因此贴左显示并覆盖侧栏即可。
   Widget _buildToc(ReaderSettings rs) {
     final bg = parseHexColor(rs.bgColor, fallback: Colors.white);
     final fg = parseHexColor(rs.textColor, fallback: Colors.black);

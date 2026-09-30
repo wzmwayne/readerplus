@@ -160,10 +160,11 @@ jobs:
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
           flutter pub get
           flutter build apk --debug --target-platform android-arm64 \
-            --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }}
+            --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} \
+            --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}
       - name: 构建 Release APK（多架构）
         if: ${{ inputs.build_release }}
-        run: flutter build apk --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }}
+        run: flutter build apk --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}
       - name: 生成构建摘要
         run: |
           set +e
@@ -223,12 +224,12 @@ jobs:
         run: |
           flutter config --no-analytics
           flutter pub get
-          flutter build linux --debug --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }}
+          flutter build linux --debug --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}
       - name: 打包 Debug
         run: tar -czf readerplus-linux-x64-debug.tar.gz -C build/linux/x64/debug/bundle .
       - name: 构建 Release（桌面）
         if: ${{ inputs.build_release }}
-        run: flutter build linux --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }}
+        run: flutter build linux --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}
       - name: 打包 Release
         if: ${{ inputs.build_release }}
         run: tar -czf readerplus-linux-x64.tar.gz -C build/linux/x64/release/bundle .
