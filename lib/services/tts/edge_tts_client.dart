@@ -5,6 +5,8 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 
+import 'edge_ws.dart';
+
 /// Edge TTS 音色。
 class TtsVoice {
   const TtsVoice({
@@ -67,7 +69,10 @@ class EdgeTtsClient {
 
   static const trustedClientToken = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
   static const _winEpoch = 11644473600;
-  static const _chromiumVersion = '130';
+  static const _chromiumVersion = '143';
+  static const _userAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0';
   static const _host = 'speech.platform.bing.com';
   static const _path = '/consumer/speech/synthesize/readaloud/edge/v1';
   static const _voicesUrl =
@@ -81,6 +86,8 @@ class EdgeTtsClient {
     final time = (now ?? DateTime.now()).toUtc();
     var ticks = time.millisecondsSinceEpoch ~/ 1000 + _winEpoch;
     ticks -= ticks % 300;
+    // Windows FILETIME 以 100 纳秒为单位，必须再乘 10^7（参考实现同此）
+    ticks *= 10000000;
     return sha256
         .convert(utf8.encode('$ticks$trustedClientToken'))
         .toString()
@@ -94,11 +101,36 @@ class EdgeTtsClient {
     String pitch = '+0Hz',
     String volume = '+0%',
   }) =>
-      '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="zh-CN">'
-      '<voice name="$voice">'
-      '<prosody pitch="$pitch" rate="$rate" volume="$volume">'
+      "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis'"
+      " xml:lang='en-US'>"
+      "<voice name='$voice'>"
+      "<prosody pitch='$pitch' rate='$rate' volume='$volume'>"
       '${escapeXml(text)}'
       '</prosody></voice></speak>';
+
+  /// speech.config 消息（含 WebSocket 头部块），与参考实现一致。
+  static String buildConfigMessage([DateTime? now]) =>
+      'X-Timestamp:${_timestamp(now)}\r\n'
+      'Content-Type:application/json; charset=utf-8\r\n'
+      'Path:speech.config\r\n\r\n'
+      '{"context":{"synthesis":{"audio":{"metadataoptions":'
+      '{"sentenceBoundaryEnabled":"true","wordBoundaryEnabled":"false"},'
+      '"outputFormat":"$outputFormat"}}}}\r\n';
+
+  /// ssml 消息（含 WebSocket 头部块）。
+  /// X-RequestId 用于服务端关联本次合成请求，缺失会导致服务端不回任何数据。
+  static String buildSsmlMessage({
+    required String voice,
+    required String text,
+    String rate = '+0%',
+    String pitch = '+0Hz',
+    DateTime? now,
+  }) =>
+      'X-RequestId:${_uuid()}\r\n'
+      'Content-Type:application/ssml+xml\r\n'
+      'X-Timestamp:${_timestamp(now)}Z\r\n'
+      'Path:ssml\r\n\r\n'
+      '${buildSsml(voice: voice, text: text, rate: rate, pitch: pitch)}';
 
   static String escapeXml(String text) => text
       .replaceAll('&', '&amp;')
@@ -107,18 +139,27 @@ class EdgeTtsClient {
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&apos;');
 
+  /// X-Timestamp 采用服务端接受的格式：
+  /// `EEE MMM dd yyyy HH:mm:ss GMT+0000 (Coordinated Universal Time)`
   static String _timestamp([DateTime? now]) {
     final t = (now ?? DateTime.now()).toUtc();
-    return '${t.toIso8601String().split('.').first}Z';
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${weekdays[t.weekday - 1]} ${months[t.month - 1]} ${two(t.day)} ${t.year} '
+        '${two(t.hour)}:${two(t.minute)}:${two(t.second)} '
+        'GMT+0000 (Coordinated Universal Time)';
   }
 
   static String _uuid() {
     final rnd = Random.secure();
-    String hex(int n) => List.generate(
-      n,
+    return List.generate(
+      32,
       (_) => rnd.nextInt(16).toRadixString(16),
     ).join();
-    return '${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}';
   }
 
   /// 建立一次合成会话，返回 mp3 字节流（边收边吐）。
@@ -129,7 +170,7 @@ class EdgeTtsClient {
     String pitch = '+0Hz',
   }) {
     final controller = StreamController<List<int>>();
-    WebSocket? socket;
+    EdgeWebSocket? socket;
     var finished = false;
 
     Future<void> close() async {
@@ -150,32 +191,24 @@ class EdgeTtsClient {
           '&Sec-MS-GEC=${secMsGec()}'
           '&Sec-MS-GEC-Version=1-$_chromiumVersion.0.3650.75',
         );
-        socket = await WebSocket.connect(
-          uri.toString(),
+        // 握手头部与社区实现一致：Origin 必须是这个扩展 ID，
+        // 且必须带 Cookie: muid=<32 位大写十六进制>;
+        socket = await EdgeWebSocket.connect(
+          uri,
           headers: {
-            'Origin': 'chrome-extension://jdiccldimpahajmoofdmpmkdbcbmejbl',
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                '(KHTML, like Gecko) Chrome/$_chromiumVersion.0.0.0 Safari/537.36 Edg/$_chromiumVersion.0.0.0',
+            'Origin': 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
+            'User-Agent': _userAgent,
+            'Pragma': 'no-cache',
+            'Cache-Control': 'no-cache',
+            'Cookie': 'muid=${_uuid().toUpperCase()};',
           },
         );
-        final stamp = _timestamp();
-        socket!.add(
-          'X-Timestamp:$stamp\r\n'
-          'Content-Type:application/json; charset=utf-8\r\n'
-          'Path:speech.config\r\n\r\n'
-          '{"context":{"synthesis":{"audio":{"metadataoptions":'
-          '{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},'
-          '"outputFormat":"$outputFormat"}}}}',
-        );
-        socket!.add(
-          'X-Timestamp:$stamp\r\n'
-          'Content-Type:application/ssml+xml\r\n'
-          'Path:ssml\r\n\r\n'
-          '${buildSsml(voice: voice, text: text, rate: rate, pitch: pitch)}',
+        socket!.sendText(buildConfigMessage());
+        socket!.sendText(
+          buildSsmlMessage(voice: voice, text: text, rate: rate, pitch: pitch),
         );
 
-        socket!.listen(
+        socket!.events.listen(
           (event) {
             if (event is String) {
               if (event.contains('Path:turn.end')) close();

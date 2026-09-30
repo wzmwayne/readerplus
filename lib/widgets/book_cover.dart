@@ -37,17 +37,17 @@ class BookCover extends StatelessWidget {
     return _palette[hash % _palette.length];
   }
 
-  bool get _hasCoverImage {
+  String? get _coverPath {
     final path = book.coverPath;
-    if (path == null || path.isEmpty) return false;
-    return File(path).existsSync();
+    return (path == null || path.isEmpty) ? null : path;
   }
 
   @override
   Widget build(BuildContext context) {
-    final child = _hasCoverImage
+    final coverPath = _coverPath;
+    final child = coverPath != null
         ? Image.file(
-            File(book.coverPath!),
+            File(coverPath),
             width: width,
             height: height,
             fit: BoxFit.cover,

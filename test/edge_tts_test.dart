@@ -21,7 +21,7 @@ void main() {
       // 期望值由 Python 独立算出：ticks 取整到 300 后与令牌拼接做 SHA-256（大写十六进制）
       expect(
         EdgeTtsClient.secMsGec(DateTime.utc(2026, 9, 30, 12, 0, 0)),
-        '45120FDBE585E1701466F347E6A7785E81C5BF38F94D64A06EF48A6A2088D721',
+        '14C4410C6B810FD3B511152D9A96C51A56FBB5C5530494CC4C8E0EADCF2500D6',
       );
     });
   });
@@ -34,8 +34,8 @@ void main() {
         rate: '+10%',
         pitch: '+0Hz',
       );
-      expect(ssml, contains('name="zh-CN-XiaoxiaoNeural"'));
-      expect(ssml, contains('rate="+10%"'));
+      expect(ssml, contains("name='zh-CN-XiaoxiaoNeural'"));
+      expect(ssml, contains("rate='+10%'"));
       expect(ssml, contains('&lt;你好&gt;'));
       expect(ssml, contains('&amp;'));
       expect(ssml, contains('&quot;再见&quot;'));
