@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 品牌色：取自 wzml.cc.cd/logo 的前景颜色，用于启动窗口背景，避免冷启动白闪 -->
+    <color name="brand_splash">#FF76DFA1</color>
+</resources>

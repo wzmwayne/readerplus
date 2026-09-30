@@ -12,13 +12,29 @@ import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import 'chapter_paginator.dart';
 
+/// 扁平化后的一页：属于哪一章、章内第几页、页内容。
+class _FlatPage {
+  const _FlatPage({
+    required this.chapter,
+    required this.pageInChapter,
+    required this.page,
+  });
+
+  final int chapter;
+  final int pageInChapter;
+  final ReaderPageContent page;
+
+  int get firstLine => page.firstLine;
+  int get lastLine => page.lastLine;
+}
+
 /// 阅读界面。
 ///
-/// 交互约定：
-///   点击左侧 1/3 上一页，右侧 1/3 下一页，中间 1/3 呼出菜单
-///   覆盖 / 滑动模式翻页有动画，无动画模式点击与滑动都立即切换
-///   阅读进度按「章节 + 屏幕首行行号」保存，与设备分辨率、字号无关
-///   横屏时菜单顶栏/底栏显示在左右两侧（可在菜单里关闭）
+/// 分页模型：维护「上一章 + 当前章 + 下一章」三章的页缓存，并拼接成一个扁平分页列表。
+/// 点击翻页与滑动翻页走同一套逻辑（同一个 [_turnBy]），因此章节交界处行为一致：
+/// 章节末继续翻进入下一章首页，章节首页回翻进入上一章最后一页。
+///
+/// 阅读进度按「章节 + 屏幕首行行号」保存（与设备分辨率、字号无关）。
 class ReaderPage extends StatefulWidget {
   const ReaderPage({super.key, required this.book});
 
@@ -28,30 +44,34 @@ class ReaderPage extends StatefulWidget {
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
-class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateMixin {
+class _ReaderPageState extends State<ReaderPage>
+    with SingleTickerProviderStateMixin {
   List<Chapter> _chapters = const [];
   String _content = '';
   int _chapterIndex = 0;
-  List<ReaderPageContent> _pages = const [];
-  int _pageIndex = 0;
   bool _loading = true;
+
+  /// 三章窗口拼接出的扁平页列表。
+  final List<_FlatPage> _flat = [];
+  int _flatIndex = 0;
+
+  /// 按章缓存分页结果，避免每次跨章都重算。
+  final Map<int, List<ReaderPageContent>> _pageCache = {};
+  String _paginateSignature = '';
+  int _windowChapter = -1;
+  Size _viewport = Size.zero;
+  int? _pendingLine;
 
   bool _menuVisible = false;
   String? _panel;
   bool _tocVisible = false;
 
-  /// 分页结果的签名：尺寸、字体缩放或排版设置变化时重新分页。
-  String _paginateSignature = '';
-  Size _viewport = Size.zero;
-
-  /// 待恢复的行号（打开书籍或跳章时设置）。
-  int? _pendingLine;
-
-  double _drag = 0;
+  /// 拖动/动画位移（用 ValueNotifier 驱动，避免动画期间整页重建）。
+  final ValueNotifier<double> _drag = ValueNotifier<double>(0);
   late final AnimationController _settle;
-  double _settleFrom = 0;
-  double _settleTo = 0;
-  VoidCallback? _settleThen;
+  double _dragFrom = 0;
+  double _dragTo = 0;
+  VoidCallback? _afterSettle;
 
   final PageController _slideController = PageController();
   final ScrollController _scrollController = ScrollController();
@@ -64,17 +84,14 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
       duration: const Duration(milliseconds: 200),
     );
     _settle.addListener(() {
-      setState(() {
-        _drag = _settleFrom + (_settleTo - _settleFrom) * _settle.value;
-      });
+      _drag.value = _dragFrom + (_dragTo - _dragFrom) * _settle.value;
     });
     _settle.addStatusListener((status) {
       if (status != AnimationStatus.completed) return;
-      final then = _settleThen;
-      _settleThen = null;
-      if (!mounted) return;
-      setState(() => _drag = 0);
-      then?.call();
+      final after = _afterSettle;
+      _afterSettle = null;
+      _drag.value = 0;
+      after?.call();
     });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _load();
@@ -83,6 +100,7 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
   @override
   void dispose() {
     _settle.dispose();
+    _drag.dispose();
     _slideController.dispose();
     _scrollController.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -110,6 +128,9 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
 
   ReaderSettings get _rs => context.read<AppState>().readerSettings;
 
+  _FlatPage? get _current =>
+      _flat.isEmpty || _flatIndex >= _flat.length ? null : _flat[_flatIndex];
+
   TextStyle _textStyle(ReaderSettings rs) => TextStyle(
     fontSize: rs.textSize,
     height: (rs.textSize + rs.lineSpacing) / rs.textSize,
@@ -129,37 +150,101 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
       rs.footerMiddle != TipMode.none ||
       rs.footerRight != TipMode.none;
 
-  /// 页眉/页脚的精确高度，分页与渲染共用，保证不会超出。
   double _tipBarHeight(ReaderSettings rs, {required bool isHeader}) {
     final hasAny = isHeader ? _hasHeader(rs) : _hasFooter(rs);
     if (!hasAny) return 0;
     final textHeight = rs.textSize * 0.68 * 1.25;
-    const padding = 12.0; // 上下内边距之和
+    const padding = 12.0;
     final showLine = isHeader ? rs.showHeaderLine : rs.showFooterLine;
     return textHeight + padding + (showLine ? 8 : 0);
   }
 
-  String get _chapterText {
-    if (_chapters.isEmpty) return _content;
-    final ch = _chapters[_chapterIndex];
+  String _chapterTextOf(int index) {
+    if (index < 0 || index >= _chapters.length) return '';
+    final ch = _chapters[index];
     final start = ch.start.clamp(0, _content.length);
     final end = ch.end.clamp(start, _content.length);
     return _content.substring(start, end);
   }
 
-  double get _bookProgress => _chapters.isEmpty
-      ? 0
-      : ((_chapterIndex + (_pages.isEmpty ? 0 : _pageIndex / _pages.length)) /
-                _chapters.length)
-            .clamp(0, 1)
-            .toDouble();
+  double get _bookProgress {
+    final f = _current;
+    if (f == null || _chapters.isEmpty) return 0;
+    final total = _pagesOfChapter(f.chapter).length;
+    final inChapter = total == 0 ? 0 : (f.pageInChapter + 1) / total;
+    return ((f.chapter + inChapter) / _chapters.length).clamp(0, 1).toDouble();
+  }
 
   double get _scrollLineHeight {
     final rs = _rs;
     return rs.textSize + rs.lineSpacing + rs.paragraphSpacing + 1;
   }
 
-  // ---------------- 分页 ----------------
+  // ---------------- 分页（三章窗口 + 缓存） ----------------
+
+  List<ReaderPageContent> _pagesOfChapter(
+    int index, {
+    ReaderSettings? rs,
+    TextScaler? scaler,
+  }) {
+    final cached = _pageCache[index];
+    if (cached != null) return cached;
+    if (_viewport.isEmpty) return const [];
+    final settings = rs ?? _rs;
+    final textScaler = scaler ?? TextScaler.noScaling;
+    final headerHeight = _tipBarHeight(settings, isHeader: true);
+    final footerHeight = _tipBarHeight(settings, isHeader: false);
+    final maxWidth =
+        _viewport.width - settings.paddingLeft - settings.paddingRight;
+    final maxHeight = _viewport.height -
+        settings.paddingTop -
+        settings.paddingBottom -
+        headerHeight -
+        footerHeight;
+    final pages = ChapterPaginator.paginate(
+      text: _chapterTextOf(index),
+      style: _textStyle(settings),
+      maxWidth: maxWidth,
+      maxHeight: maxHeight,
+      indent: settings.paragraphIndent,
+      paragraphSpacing: settings.paragraphSpacing,
+      textScaler: textScaler,
+    );
+    _pageCache[index] = pages;
+    return pages;
+  }
+
+  /// 以 (chapter, line) 为锚点重建三章窗口。
+  void _rebuildWindow(int anchorChapter, int anchorLine) {
+    final flat = <_FlatPage>[];
+    for (final chapter in [
+      anchorChapter - 1,
+      anchorChapter,
+      anchorChapter + 1,
+    ]) {
+      if (chapter < 0 || chapter >= _chapters.length) continue;
+      final pages = _pagesOfChapter(chapter);
+      for (var i = 0; i < pages.length; i++) {
+        flat.add(_FlatPage(chapter: chapter, pageInChapter: i, page: pages[i]));
+      }
+    }
+    _flat
+      ..clear()
+      ..addAll(flat);
+    _flatIndex = _indexFor(anchorChapter, anchorLine);
+    _windowChapter = anchorChapter;
+  }
+
+  int _indexFor(int chapter, int line) {
+    var fallback = 0;
+    for (var i = 0; i < _flat.length; i++) {
+      final f = _flat[i];
+      if (f.chapter != chapter) continue;
+      if (line >= f.firstLine && line <= f.lastLine) return i;
+      if (f.firstLine <= line) fallback = i;
+    }
+    return fallback;
+  }
 
   void _paginateIfNeeded(
     BoxConstraints constraints,
@@ -193,74 +278,62 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
       rs.showHeaderLine,
       rs.showFooterLine,
     ].join('|');
-    if (signature == _paginateSignature) return;
+
+    final sameLayout = signature == _paginateSignature;
+    if (sameLayout && _windowChapter == _chapterIndex && _flat.isNotEmpty) {
+      return;
+    }
+    if (!sameLayout) _pageCache.clear();
     _paginateSignature = signature;
 
-    final headerHeight = _tipBarHeight(rs, isHeader: true);
-    final footerHeight = _tipBarHeight(rs, isHeader: false);
-    final maxWidth = size.width - rs.paddingLeft - rs.paddingRight;
-    final maxHeight =
-        size.height - rs.paddingTop - rs.paddingBottom - headerHeight - footerHeight;
-
-    final pages = ChapterPaginator.paginate(
-      text: _chapterText,
-      style: _textStyle(rs),
-      maxWidth: maxWidth,
-      maxHeight: maxHeight,
-      indent: rs.paragraphIndent,
-      paragraphSpacing: rs.paragraphSpacing,
-      textScaler: scaler,
-    );
-    _pages = pages;
-
-    final pending = _pendingLine;
+    final anchorLine = _pendingLine ?? (_current?.firstLine ?? 0);
     _pendingLine = null;
-    if (pending != null) {
-      _pageIndex = ChapterPaginator.pageIndexForLine(pages, pending);
-    } else {
-      _pageIndex = _pageIndex.clamp(0, pages.length - 1);
-    }
+    _pagesOfChapter(_chapterIndex, rs: rs, scaler: scaler);
+    _rebuildWindow(_chapterIndex, anchorLine);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (rs.pageMode == PageMode.slide && _slideController.hasClients) {
-        _slideController.jumpToPage(_pageIndex);
+        _slideController.jumpToPage(_flatIndex);
       }
       if (rs.pageMode == PageMode.scroll && _scrollController.hasClients) {
-        final target = (pending ?? _pages[_pageIndex].firstLine) * _scrollLineHeight;
-        _scrollController.jumpTo(target.clamp(0, _scrollController.position.maxScrollExtent));
+        final offset = anchorLine * _scrollLineHeight;
+        _scrollController.jumpTo(
+          offset.clamp(0, _scrollController.position.maxScrollExtent),
+        );
       }
     });
   }
 
-  // ---------------- 翻页 ----------------
+  // ---------------- 翻页（点击与滑动共用） ----------------
 
   void _applyTurn(int delta) {
-    final target = _pageIndex + delta;
-    if (target < 0) {
-      _goChapter(_chapterIndex - 1, toLastPage: true);
-      return;
-    }
-    if (target >= _pages.length) {
-      _goChapter(_chapterIndex + 1);
-      return;
-    }
-    setState(() => _pageIndex = target);
+    final target = _flatIndex + delta;
+    if (target < 0 || target >= _flat.length) return;
+    setState(() {
+      _flatIndex = target;
+      final chapter = _flat[target].chapter;
+      if (chapter != _chapterIndex) {
+        _chapterIndex = chapter;
+        // 进入新章后把窗口挪到它附近（页缓存命中，代价很小）
+        _paginateSignature = '';
+      }
+    });
     _persistProgress();
   }
 
-  /// 翻页；覆盖 / 滑动模式有动画，无动画模式直接切换。
-  void _turnPage(int delta) {
-    if (_pages.isEmpty) return;
-    switch (_rs.pageMode) {
-      case PageMode.cover:
-        final width = _viewport.width;
-        _animateDragTo(delta > 0 ? -width : width, then: () => _applyTurn(delta));
+  /// 统一的翻页入口：点击与滑动都走这里，只有动画方式不同。
+  void _turnBy(int delta, {required bool animated}) {
+    if (delta == 0 || _flat.isEmpty) return;
+    final target = _flatIndex + delta;
+    if (target < 0 || target >= _flat.length) return;
+    final rs = _rs;
+    if (!animated || _viewport.width <= 0) {
+      _applyTurn(delta);
+      return;
+    }
+    switch (rs.pageMode) {
       case PageMode.slide:
-        final target = _pageIndex + delta;
-        if (target < 0 || target >= _pages.length) {
-          _applyTurn(delta);
-          return;
-        }
         if (_slideController.hasClients) {
           _slideController.animateToPage(
             target,
@@ -270,23 +343,40 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
         } else {
           _applyTurn(delta);
         }
+      case PageMode.cover:
+        _settleTo(
+          delta > 0 ? -_viewport.width : _viewport.width,
+          then: () => _applyTurn(delta),
+        );
       case PageMode.none:
       case PageMode.scroll:
         _applyTurn(delta);
     }
   }
 
-  void _goChapter(int index, {bool toLastPage = false}) {
+  /// 停在 [target] 位移处；结束后执行 [then]。
+  void _settleTo(double target, {VoidCallback? then}) {
+    _dragFrom = _drag.value;
+    _dragTo = target;
+    _afterSettle = then;
+    if ((_dragTo - _dragFrom).abs() < 0.5) {
+      _drag.value = 0;
+      _afterSettle = null;
+      then?.call();
+      return;
+    }
+    _settle.forward(from: 0);
+  }
+
+  void _goChapter(int index) {
     if (index < 0 || index >= _chapters.length) return;
     setState(() {
       _chapterIndex = index;
-      _pageIndex = 0;
-      _pages = const [];
+      _pendingLine = 0;
       _paginateSignature = '';
-      _pendingLine = toLastPage ? null : 0;
       _menuVisible = false;
       _tocVisible = false;
-      _drag = 0;
+      _drag.value = 0;
     });
     _persistProgress();
   }
@@ -302,9 +392,9 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     }
     final x = details.localPosition.dx;
     if (x < width / 3) {
-      _turnPage(-1);
+      _turnBy(-1, animated: true);
     } else if (x > width * 2 / 3) {
-      _turnPage(1);
+      _turnBy(1, animated: true);
     } else {
       setState(() => _menuVisible = true);
     }
@@ -312,58 +402,42 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
 
   void _onDragUpdate(DragUpdateDetails details, double width) {
     if (_settle.isAnimating) _settle.stop();
-    setState(() {
-      _drag = (_drag + details.delta.dx).clamp(-width, width);
-    });
+    _drag.value = (_drag.value + details.delta.dx).clamp(-width, width);
   }
 
   void _onDragEnd(DragEndDetails details, double width) {
     final velocity = details.velocity.pixelsPerSecond.dx;
-    final goNext = _drag < -width * 0.22 || (velocity < -600 && _drag < -20);
-    final goPrev = _drag > width * 0.22 || (velocity > 600 && _drag > 20);
+    final drag = _drag.value;
+    final goNext = drag < -width * 0.22 || (velocity < -600 && drag < -20);
+    final goPrev = drag > width * 0.22 || (velocity > 600 && drag > 20);
 
+    // 无动画模式：松手立即切换，不做过渡
     if (_rs.pageMode == PageMode.none) {
-      // 无动画模式：滑动即时生效
-      setState(() {
-        _drag = 0;
-        if (goNext) {
-          _applyTurn(1);
-        } else if (goPrev) {
-          _applyTurn(-1);
-        }
-      });
+      _drag.value = 0;
+      if (goNext) {
+        _applyTurn(1);
+      } else if (goPrev) {
+        _applyTurn(-1);
+      }
       return;
     }
     if (goNext) {
-      _animateDragTo(-width, then: () => _applyTurn(1));
+      _turnBy(1, animated: true);
     } else if (goPrev) {
-      _animateDragTo(width, then: () => _applyTurn(-1));
+      _turnBy(-1, animated: true);
     } else {
-      _animateDragTo(0);
+      _settleTo(0);
     }
-  }
-
-  void _animateDragTo(double target, {VoidCallback? then}) {
-    _settleFrom = _drag;
-    _settleTo = target;
-    _settleThen = then;
-    _settle.forward(from: 0);
   }
 
   Future<void> _persistProgress() async {
     if (_chapters.isEmpty) return;
-    final state = context.read<AppState>();
-    final line = _pages.isEmpty
-        ? 0
-        : _pages[_pageIndex.clamp(0, _pages.length - 1)].firstLine;
-    final offset = _pages.isEmpty
-        ? 0
-        : _pages[_pageIndex.clamp(0, _pages.length - 1)].startOffset;
-    await state.saveProgress(
+    final f = _current;
+    await context.read<AppState>().saveProgress(
       widget.book,
-      _chapterIndex,
-      line,
-      offset,
+      f?.chapter ?? _chapterIndex,
+      f?.firstLine ?? 0,
+      f?.page.startOffset ?? 0,
       _bookProgress,
     );
   }
@@ -391,7 +465,8 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     }
 
     final scaler = MediaQuery.textScalerOf(context);
-    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
 
     return Scaffold(
       backgroundColor: bg,
@@ -400,7 +475,7 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
           _paginateIfNeeded(constraints, rs, scaler);
           return Stack(
             children: [
-              Positioned.fill(child: _buildContent(constraints, rs, scaler)),
+              Positioned.fill(child: _buildContent(constraints, rs)),
               if (rs.brightness > 0)
                 Positioned.fill(
                   child: IgnorePointer(
@@ -410,7 +485,6 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
                   ),
                 ),
               _buildMenu(rs, state, isLandscape: isLandscape),
-              // 目录放在最上层（z 序高于左右侧栏）
               if (_tocVisible) _buildToc(rs),
             ],
           );
@@ -419,11 +493,7 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildContent(
-    BoxConstraints constraints,
-    ReaderSettings rs,
-    TextScaler scaler,
-  ) {
+  Widget _buildContent(BoxConstraints constraints, ReaderSettings rs) {
     final width = constraints.maxWidth;
     switch (rs.pageMode) {
       case PageMode.slide:
@@ -432,12 +502,20 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
           onTapUp: (d) => _handleTap(d, width),
           child: PageView.builder(
             controller: _slideController,
-            itemCount: _pages.length,
+            itemCount: _flat.length,
             onPageChanged: (i) {
-              setState(() => _pageIndex = i);
+              setState(() {
+                _flatIndex = i;
+                final chapter = _flat[i].chapter;
+                if (chapter != _chapterIndex) {
+                  _chapterIndex = chapter;
+                  _paginateSignature = '';
+                }
+              });
               _persistProgress();
             },
-            itemBuilder: (context, index) => _pageFrame(rs, index, scaler),
+            itemBuilder: (context, index) =>
+                RepaintBoundary(child: _pageFrame(rs, index)),
           ),
         );
       case PageMode.scroll:
@@ -472,49 +550,63 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
         );
       case PageMode.cover:
       case PageMode.none:
-        final animated = rs.pageMode == PageMode.cover;
+        // 三页预构建（上一页 / 当前页 / 下一页）；动画只更新 Transform，
+        // 不重建页面内容，因此不会卡顿。
+        final hasPrev = _flatIndex > 0;
+        final hasNext = _flatIndex + 1 < _flat.length;
+        final prevPage = hasPrev
+            ? RepaintBoundary(child: _pageFrame(rs, _flatIndex - 1))
+            : null;
+        final currentPage = RepaintBoundary(child: _pageFrame(rs, _flatIndex));
+        final nextPage = hasNext
+            ? RepaintBoundary(child: _pageFrame(rs, _flatIndex + 1))
+            : null;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
           onHorizontalDragUpdate: (d) => _onDragUpdate(d, width),
           onHorizontalDragEnd: (d) => _onDragEnd(d, width),
-          child: Stack(
-            children: [
-              if (_drag > 0 && _pageIndex > 0)
+          child: ValueListenableBuilder<double>(
+            valueListenable: _drag,
+            builder: (context, drag, _) => Stack(
+              children: [
+                if (prevPage != null && drag > 0)
+                  Positioned.fill(
+                    child: Transform.translate(
+                      offset: Offset(-width + drag, 0),
+                      child: prevPage,
+                    ),
+                  ),
                 Positioned.fill(
                   child: Transform.translate(
-                    offset: Offset(-width + _drag, 0),
-                    child: _pageFrame(rs, _pageIndex - 1, scaler),
+                    offset: Offset(drag, 0),
+                    child: currentPage,
                   ),
                 ),
-              Positioned.fill(
-                child: Transform.translate(
-                  offset: Offset(animated ? _drag : 0, 0),
-                  child: _pageFrame(rs, _pageIndex, scaler),
-                ),
-              ),
-              if (animated && _drag < 0 && _pageIndex + 1 < _pages.length)
-                Positioned.fill(
-                  child: Transform.translate(
-                    offset: Offset(width + _drag, 0),
-                    child: _pageFrame(rs, _pageIndex + 1, scaler),
+                if (nextPage != null && drag < 0)
+                  Positioned.fill(
+                    child: Transform.translate(
+                      offset: Offset(width + drag, 0),
+                      child: nextPage,
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         );
     }
   }
 
-  List<String> _scrollParagraphs() => _chapterText
+  List<String> _scrollParagraphs() => _chapterTextOf(_chapterIndex)
       .split('\n')
       .map((e) => e.trim())
       .where((e) => e.isNotEmpty)
       .map((e) => '${_rs.paragraphIndent}$e')
       .toList();
 
-  Widget _pageFrame(ReaderSettings rs, int index, TextScaler scaler) {
-    final page = index >= 0 && index < _pages.length ? _pages[index] : null;
+  Widget _pageFrame(ReaderSettings rs, int flatIndex) {
+    final flat =
+        flatIndex >= 0 && flatIndex < _flat.length ? _flat[flatIndex] : null;
     final headerHeight = _tipBarHeight(rs, isHeader: true);
     final footerHeight = _tipBarHeight(rs, isHeader: false);
     return Container(
@@ -528,14 +620,17 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (headerHeight > 0)
-            SizedBox(height: headerHeight, child: _tipBar(rs, isHeader: true)),
+            SizedBox(
+              height: headerHeight,
+              child: _tipBar(rs, isHeader: true, flat: flat),
+            ),
           Expanded(
             child: ClipRect(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (page != null)
-                    for (final para in page.paragraphs) ...[
+                  if (flat != null)
+                    for (final para in flat.page.paragraphs) ...[
                       Text(para.text, style: _textStyle(rs)),
                       if (para.gapAfter > 0) SizedBox(height: para.gapAfter),
                     ],
@@ -544,31 +639,35 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
             ),
           ),
           if (footerHeight > 0)
-            SizedBox(height: footerHeight, child: _tipBar(rs, isHeader: false)),
+            SizedBox(
+              height: footerHeight,
+              child: _tipBar(rs, isHeader: false, flat: flat),
+            ),
         ],
       ),
     );
   }
 
-  Widget _tipBar(ReaderSettings rs, {required bool isHeader}) {
+  Widget _tipBar(ReaderSettings rs, {required bool isHeader, _FlatPage? flat}) {
     final style = TextStyle(
       fontSize: rs.textSize * 0.68,
       color: parseHexColor(rs.textColor, fallback: Colors.black)
           .withValues(alpha: 0.65),
     );
     Widget slot(TipMode mode) => Text(
-      _tipText(mode),
+      _tipText(mode, flat),
       style: style,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
     );
     return Column(
-      mainAxisAlignment: isHeader ? MainAxisAlignment.end : MainAxisAlignment.start,
+      mainAxisAlignment:
+          isHeader ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: [
         if (isHeader && rs.showHeaderLine)
           Divider(height: 8, thickness: 0.5, color: style.color),
         Padding(
-          padding: EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Row(
             children: [
               Expanded(
@@ -598,16 +697,18 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     );
   }
 
-  String _tipText(TipMode mode) {
+  String _tipText(TipMode mode, _FlatPage? flat) {
+    final chapter = flat?.chapter ?? _chapterIndex;
     switch (mode) {
       case TipMode.none:
         return '';
       case TipMode.bookName:
         return widget.book.title;
       case TipMode.chapterName:
-        return _chapters.isEmpty ? '' : _chapters[_chapterIndex].title;
+        return _chapters.isEmpty ? '' : _chapters[chapter].title;
       case TipMode.pageIndex:
-        return '${_pageIndex + 1}/${_pages.length}';
+        final total = _pagesOfChapter(chapter).length;
+        return '${(flat?.pageInChapter ?? 0) + 1}/$total';
       case TipMode.progress:
         return '${(_bookProgress * 100).toStringAsFixed(1)}%';
       case TipMode.time:
@@ -672,7 +773,11 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
 
   // ---------------- 菜单 ----------------
 
-  Widget _buildMenu(ReaderSettings rs, AppState state, {required bool isLandscape}) {
+  Widget _buildMenu(
+    ReaderSettings rs,
+    AppState state, {
+    required bool isLandscape,
+  }) {
     final sideBars = isLandscape && rs.landscapeSideMenu;
     return Positioned.fill(
       child: IgnorePointer(
@@ -684,7 +789,6 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
               ? Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 左侧：原顶栏的内容，竖向排布
                     _sidePanel(
                       width: _sideWidth,
                       child: _menuTop(state, side: true),
@@ -694,12 +798,13 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
                           ? const SizedBox.shrink()
                           : Center(
                               child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 520),
+                                constraints: const BoxConstraints(
+                                  maxWidth: 520,
+                                ),
                                 child: _panelBody(rs, state),
                               ),
                             ),
                     ),
-                    // 右侧：原底栏的内容，竖向排布
                     _sidePanel(
                       width: _sideWidth,
                       child: _menuBottom(rs, state, side: true),
@@ -719,7 +824,6 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     );
   }
 
-  /// 侧栏宽度：随窗口宽度自适应，保证图标 + 文字排版舒适。
   double get _sideWidth => (_viewport.width * 0.22).clamp(132.0, 208.0);
 
   Widget _sidePanel({required double width, required Widget child}) => SizedBox(
@@ -763,7 +867,8 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
                 ),
               ),
               Positioned(
-                top: ((height - 18) * ratio).clamp(0.0, math.max(0.0, height - 18)),
+                top: ((height - 18) * ratio)
+                    .clamp(0.0, math.max(0.0, height - 18)),
                 child: Container(
                   width: 16,
                   height: 16,
@@ -821,15 +926,12 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     );
 
     if (side) {
-      // 竖排侧栏：返回与更多在同一行，下面依次是书名与章节名
       return Padding(
         padding: const EdgeInsets.fromLTRB(6, 6, 6, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [backButton, const Spacer(), moreButton],
-            ),
+            Row(children: [backButton, const Spacer(), moreButton]),
             const SizedBox(height: 8),
             title,
           ],
@@ -844,11 +946,7 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
         child: SizedBox(
           height: 52,
           child: Row(
-            children: [
-              backButton,
-              Expanded(child: title),
-              moreButton,
-            ],
+            children: [backButton, Expanded(child: title), moreButton],
           ),
         ),
       ),
@@ -877,20 +975,39 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
 
   Widget _menuBottom(ReaderSettings rs, AppState state, {bool side = false}) {
     final buttons = <Widget>[
-      _menuButton(Icons.list, '目录', () => setState(() => _tocVisible = !_tocVisible),
-          side: side),
-      _menuButton(Icons.brightness_6, '亮度', () => _togglePanel('bright'),
-          side: side),
-      _menuButton(Icons.color_lens_outlined, '背景', () => _togglePanel('bg'),
-          side: side),
-      _menuButton(Icons.text_fields, '字号', () => _togglePanel('font'),
-          side: side),
-      _menuButton(Icons.auto_stories_outlined, '翻页', () => _togglePanel('page'),
-          side: side),
+      _menuButton(
+        Icons.list,
+        '目录',
+        () => setState(() => _tocVisible = !_tocVisible),
+        side: side,
+      ),
+      _menuButton(
+        Icons.brightness_6,
+        '亮度',
+        () => _togglePanel('bright'),
+        side: side,
+      ),
+      _menuButton(
+        Icons.color_lens_outlined,
+        '背景',
+        () => _togglePanel('bg'),
+        side: side,
+      ),
+      _menuButton(
+        Icons.text_fields,
+        '字号',
+        () => _togglePanel('font'),
+        side: side,
+      ),
+      _menuButton(
+        Icons.auto_stories_outlined,
+        '翻页',
+        () => _togglePanel('page'),
+        side: side,
+      ),
     ];
 
     if (side) {
-      // 竖排侧栏：进度百分比、竖向章节进度条、章节序号，随后是功能按钮
       return Padding(
         padding: const EdgeInsets.fromLTRB(6, 12, 6, 12),
         child: Column(
@@ -964,7 +1081,6 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     bool side = false,
   }) {
     if (side) {
-      // 竖排侧栏：图标 + 文字横向并排，垂直堆叠，保持文字正向可读
       return InkWell(
         onTap: onTap,
         child: Padding(
@@ -993,8 +1109,10 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
           children: [
             Icon(icon, color: Colors.white, size: 22),
             const SizedBox(height: 4),
-            Text(label,
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
           ],
         ),
       ),
@@ -1029,30 +1147,38 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
   );
 
   Widget _fontPanel(ReaderSettings rs, AppState state) {
-    Widget stepper(String label, double value, VoidCallback dec, VoidCallback inc) =>
-        Row(
-          children: [
-            SizedBox(
-              width: 64,
-              child: Text(label,
-                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            ),
-            IconButton(
-                icon: const Icon(Icons.remove_circle_outline, color: Colors.white),
-                onPressed: dec),
-            SizedBox(
-              width: 48,
-              child: Text(
-                value.toStringAsFixed(1),
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-              ),
-            ),
-            IconButton(
-                icon: const Icon(Icons.add_circle_outline, color: Colors.white),
-                onPressed: inc),
-          ],
-        );
+    Widget stepper(
+      String label,
+      double value,
+      VoidCallback dec,
+      VoidCallback inc,
+    ) => Row(
+      children: [
+        SizedBox(
+          width: 64,
+          child: Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.remove_circle_outline, color: Colors.white),
+          onPressed: dec,
+        ),
+        SizedBox(
+          width: 48,
+          child: Text(
+            value.toStringAsFixed(1),
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline, color: Colors.white),
+          onPressed: inc,
+        ),
+      ],
+    );
     void update(VoidCallback change) {
       setState(() {
         change();
@@ -1080,23 +1206,29 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
           stepper(
             '字距',
             rs.letterSpacing,
-            () => update(() => rs.letterSpacing = math.max(0, rs.letterSpacing - 0.5)),
-            () => update(() => rs.letterSpacing = math.min(8, rs.letterSpacing + 0.5)),
+            () =>
+                update(() => rs.letterSpacing = math.max(0, rs.letterSpacing - 0.5)),
+            () =>
+                update(() => rs.letterSpacing = math.min(8, rs.letterSpacing + 0.5)),
           ),
           stepper(
             '段距',
             rs.paragraphSpacing,
             () => update(
-                () => rs.paragraphSpacing = math.max(0, rs.paragraphSpacing - 2)),
+              () => rs.paragraphSpacing = math.max(0, rs.paragraphSpacing - 2),
+            ),
             () => update(
-                () => rs.paragraphSpacing = math.min(32, rs.paragraphSpacing + 2)),
+              () => rs.paragraphSpacing = math.min(32, rs.paragraphSpacing + 2),
+            ),
           ),
           Row(
             children: [
               const SizedBox(
                 width: 64,
-                child: Text('加粗',
-                    style: TextStyle(color: Colors.white70, fontSize: 13)),
+                child: Text(
+                  '加粗',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
               ),
               Switch(value: rs.bold, onChanged: (v) => update(() => rs.bold = v)),
             ],
@@ -1142,14 +1274,21 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
                           ),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: rs.styleIndex == i ? Colors.white : Colors.white24,
+                            color: rs.styleIndex == i
+                                ? Colors.white
+                                : Colors.white24,
                             width: rs.styleIndex == i ? 2 : 1,
                           ),
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(kReadingStyles[i].name,
-                          style: const TextStyle(color: Colors.white70, fontSize: 10)),
+                      Text(
+                        kReadingStyles[i].name,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1157,14 +1296,18 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
           ),
           Row(
             children: [
-              const Text('夜间', style: TextStyle(color: Colors.white70, fontSize: 13)),
+              const Text(
+                '夜间',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
               Switch(
                 value: rs.nightMode,
                 onChanged: (v) {
                   setState(() {
                     rs.nightMode = v;
                     rs.applyStyle(
-                      kReadingStyles[rs.styleIndex.clamp(0, kReadingStyles.length - 1)],
+                      kReadingStyles[
+                          rs.styleIndex.clamp(0, kReadingStyles.length - 1)],
                       night: v,
                     );
                     _paginateSignature = '';
@@ -1190,9 +1333,7 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
             onSelected: (_) {
               setState(() {
                 rs.pageMode = mode;
-                _pageIndex = 0;
-                _pendingLine = _pages.isEmpty ? 0 : _pages[_pageIndex].firstLine;
-                _paginateSignature = '';
+                _drag.value = 0;
               });
               state.saveReaderSettings();
             },
