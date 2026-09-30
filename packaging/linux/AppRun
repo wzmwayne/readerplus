@@ -1,0 +1,7 @@
+#!/bin/sh
+# AppImage 入口：定位自身所在目录并启动 Flutter 打包产物。
+# Flutter 的 Linux 产物以可执行文件为中心，同级目录下有 lib/ 与 data/，
+# 因此这里整体放在 usr/bin 下，直接转发参数即可。
+set -e
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/bin/reader" "$@"

@@ -49,18 +49,19 @@ Run workflow 时选择目标）。依赖全部使用官方源，项目内不含�
 | --- | --- |
 | `analyze` | `flutter analyze` + `flutter test` 门禁 |
 | `android` | `readerplus-android-apk`（Release APK） |
-| `linux` | `readerplus-linux-x64.tar.gz` |
+| `linux` | `readerplus-linux-x64.tar.gz`、`readerplus-<版本>-x86_64.AppImage` |
 
 为了兼容性与稳定性，构建环境与工具链全部固定，不使用 `*-latest` 与浮动版本：
 
 | 项 | 固定值 |
 | --- | --- |
-| 构建环境 | Debian 13（trixie）容器，系统包版本由发行版冻结 |
+| 构建环境 | Debian 12（bookworm）容器，系统包版本由发行版冻结；glibc 2.36 |
 | 运行器 | `ubuntu-24.04` |
 | Flutter | 3.47.0 |
-| JDK | 21（Debian `openjdk-21-jdk-headless`） |
+| JDK | 17（Debian `openjdk-17-jdk-headless`） |
 | Android 工具链 | cmdline-tools 13114758、platform 36、build-tools 36.0.0、NDK 28.2.13676358 |
 | Gradle | 9.3.1（wrapper） |
+| AppImage | appimagetool 1.9.1 |
 | Actions | 全部固定到具体 release tag |
 
 工作流缓存了 Flutter SDK、pub 依赖、Gradle 依赖与构建缓存、整个 Android SDK 目录
@@ -86,7 +87,7 @@ flutter build linux --release    # Linux 桌面
 | 平台 | 最低版本 |
 | --- | --- |
 | Android | 7.0（API 24，取自 `flutter.minSdkVersion`；compileSdk / targetSdk 36） |
-| Linux 桌面 | 取决于构建环境的 glibc（CI 使用最新 Ubuntu LTS） |
+| Linux 桌面 | glibc ≥ 2.36（构建基线 Debian 12，兼容 Ubuntu 22.04+） |
 
 ## 目录结构
 
@@ -101,7 +102,8 @@ lib/
   widgets/                  通用组件
   theme/                    主题配色与中文字形回退
 test/                       单元测试（导入切分、分页、备份往返）
-.github/workflows/ci.yml 分析与构建工作流（Android APK、Linux 桌面）
+.github/workflows/ci.yml 分析与构建工作流（Android APK、Linux 桌面 + AppImage）
+packaging/linux/             AppImage 打包脚本、桌面项与图标
 ```
 
 ## 来源与致谢

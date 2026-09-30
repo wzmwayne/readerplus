@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=阅读
+Name[en]=Reader
+GenericName=小说阅读器
+Comment=多平台小说阅读器（Android 与 Linux 桌面共用一套界面）
+Exec=readerplus
+TryExec=readerplus
+Icon=readerplus
+Terminal=false
+Categories=Office;Viewer;Literature;
+Keywords=reader;novel;book;阅读;小说;
+StartupWMClass=wzmwayne.reader

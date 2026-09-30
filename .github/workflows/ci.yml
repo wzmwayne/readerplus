@@ -3,13 +3,17 @@ name: Build
 # 仅手动触发：在 Actions 页面 Run workflow，或 gh workflow run ci.yml 选择目标。
 #
 # 为兼容性与稳定性做的固定（不使用 *-latest / 浮动 tag）：
-#   - 构建环境：Debian 13 (trixie) 容器，软件包版本由发行版冻结
+#   - 构建环境：Debian 12 (bookworm) 容器，系统包版本由发行版冻结；glibc 2.36，
+#     产出的 Linux 二进制可在 Debian 12+ / Ubuntu 22.04+ 运行
 #   - 运行器：ubuntu-24.04（固定版本标签）
-#   - 工具链：Flutter 3.47.0、JDK 21（Debian 包）、Android cmdline-tools 13114758、
-#             platform 36、build-tools 36.0.0、NDK 28.2.13676358、Gradle 9.3.1（wrapper）
+#   - 工具链：Flutter 3.47.0、JDK 17（Debian 包）、Android cmdline-tools 13114758、
+#             platform 36、build-tools 36.0.0、NDK 28.2.13676358、Gradle 9.3.1（wrapper）、
+#             appimagetool 1.9.1
+#     （AGP 9.x 官方兼容表：Gradle ≥ 9.1.0、Build-Tools 36.0.0、NDK 28.2.13676358、JDK 17）
 #   - Action：全部固定到具体 release tag
 #
-# 依赖一律使用官方源（pub.dev、google()/mavenCentral()、services.gradle.org、dl.google.com）。
+# 依赖一律使用官方源（pub.dev、google()/mavenCentral()、services.gradle.org、dl.google.com、
+# github.com/AppImage）。
 #
 # 缓存（加速二次编译）：Flutter SDK、pub 依赖、Gradle 依赖与构建缓存、
 # 整个 Android SDK 目录（含 NDK，首次约 1GB，之后命中缓存）。
@@ -26,7 +30,7 @@ on:
         type: boolean
         default: true
       build_linux:
-        description: 构建 Linux 桌面
+        description: 构建 Linux 桌面（含 AppImage）
         type: boolean
         default: true
 
@@ -40,19 +44,20 @@ env:
   GIT_CONFIG_KEY_0: safe.directory
   GIT_CONFIG_VALUE_0: '*'
   FLUTTER_VERSION: '3.47.0'
-  JAVA_PACKAGE: openjdk-21-jdk-headless
+  JAVA_PACKAGE: openjdk-17-jdk-headless
   ANDROID_SDK_ROOT: /opt/android-sdk
   CMDLINE_TOOLS_VERSION: '13114758'
   ANDROID_PLATFORM: android-36
   BUILD_TOOLS: '36.0.0'
   NDK_VERSION: '28.2.13676358'
+  APPIMAGETOOL_VERSION: '1.9.1'
   BASE_PACKAGES: git ca-certificates curl unzip xz-utils tar gzip zstd jq file mawk
 
 jobs:
   analyze:
     name: 分析与单元测试
     runs-on: ubuntu-24.04
-    container: debian:13-slim
+    container: debian:12-slim
     steps:
       - name: 安装基础依赖
         run: |
@@ -80,7 +85,7 @@ jobs:
   android:
     name: Android APK
     runs-on: ubuntu-24.04
-    container: debian:13-slim
+    container: debian:12-slim
     needs: analyze
     if: ${{ inputs.build_android }}
     steps:
@@ -96,7 +101,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: /opt/android-sdk
-          key: android-sdk-debian13-tools${{ env.CMDLINE_TOOLS_VERSION }}-${{ env.ANDROID_PLATFORM }}-bt${{ env.BUILD_TOOLS }}-ndk${{ env.NDK_VERSION }}
+          key: android-sdk-linux-x64-tools${{ env.CMDLINE_TOOLS_VERSION }}-${{ env.ANDROID_PLATFORM }}-bt${{ env.BUILD_TOOLS }}-ndk${{ env.NDK_VERSION }}
       - name: 安装 Android SDK 组件（固定版本）
         run: |
           if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
@@ -136,6 +141,24 @@ jobs:
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
           flutter pub get
           flutter build apk --release --build-number=${{ github.run_number }}
+      - name: 生成构建摘要
+        run: |
+          set +e
+          APK="$(ls build/app/outputs/flutter-apk/*.apk 2>/dev/null | head -1)"
+          BADGING="$("$ANDROID_SDK_ROOT/build-tools/${BUILD_TOOLS}/aapt2" dump badging "$APK" 2>/dev/null | grep -E "^package|^sdkVersion|^targetSdkVersion" | tr '\n' ' ')"
+          {
+            echo "## Android 构建"
+            echo
+            echo "- 构建环境：Debian 12 (bookworm) 容器 / JDK \`$(java -version 2>&1 | head -1 | sed -E 's/.*\"([^\"]+)\".*/\1/')\`"
+            echo "- Flutter ${FLUTTER_VERSION}，cmdline-tools ${CMDLINE_TOOLS_VERSION}，${ANDROID_PLATFORM}，build-tools ${BUILD_TOOLS}，NDK ${NDK_VERSION}"
+            echo "- aapt2 信息：\`${BADGING:-未取到}\`"
+            echo
+            echo "| 文件 | 大小 | SHA256（前 16 位）|"
+            echo "| --- | --- | --- |"
+            for f in $APK; do
+              [ -f "$f" ] && echo "| $(basename "$f") | $(du -h "$f" | cut -f1) | \`$(sha256sum "$f" | cut -c1-16)…\` |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: 上传 APK
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -147,7 +170,7 @@ jobs:
   linux:
     name: Linux 桌面
     runs-on: ubuntu-24.04
-    container: debian:13-slim
+    container: debian:12-slim
     needs: analyze
     if: ${{ inputs.build_linux }}
     steps:
@@ -175,12 +198,43 @@ jobs:
           flutter config --no-analytics
           flutter pub get
           flutter build linux --release --build-number=${{ github.run_number }}
-      - name: 打包
+      - name: 打包 tar.gz
         run: tar -czf readerplus-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+      - name: 打包 AppImage
+        run: bash packaging/linux/build_appimage.sh "1.0.0-${{ github.run_number }}"
+      - name: 生成构建摘要
+        run: |
+          set +e
+          APPIMAGE="$(ls readerplus-*-x86_64.AppImage 2>/dev/null | head -1)"
+          GLIBC="$(ldd --version 2>/dev/null | head -1 | awk '{print $NF}')"
+          CLANG="$(clang --version 2>/dev/null | head -1)"
+          {
+            echo "## Linux 桌面构建"
+            echo
+            echo "- 构建环境：Debian 12 (bookworm) 容器，glibc ${GLIBC}"
+            echo "- 运行要求：**glibc ≥ 2.36**（Debian 12+ / Ubuntu 22.04+）"
+            echo "- Flutter ${FLUTTER_VERSION}，appimagetool ${APPIMAGETOOL_VERSION}"
+            echo "- 编译器：${CLANG:-未知}"
+            echo
+            echo "| 文件 | 大小 | SHA256（前 16 位）|"
+            echo "| --- | --- | --- |"
+            for f in readerplus-linux-x64.tar.gz $APPIMAGE; do
+              [ -f "$f" ] && echo "| $(basename "$f") | $(du -h "$f" | cut -f1) | \`$(sha256sum "$f" | cut -c1-16)…\` |"
+            done
+            echo
+            echo "运行 AppImage："
+            echo
+            echo '```bash'
+            echo "chmod +x ${APPIMAGE}"
+            echo "./${APPIMAGE}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: 上传产物
         uses: actions/upload-artifact@v7.0.1
         with:
           name: readerplus-linux-x64
-          path: readerplus-linux-x64.tar.gz
+          path: |
+            readerplus-linux-x64.tar.gz
+            readerplus-*-x86_64.AppImage
           if-no-files-found: error
           retention-days: 30
