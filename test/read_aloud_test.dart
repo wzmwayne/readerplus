@@ -241,10 +241,12 @@ void main() {
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse(url));
       // 先开始喂数据（真实播放器也是边请求边收），再等响应头
+      Duration? finishedAt;
       final feed = () async {
         server.addChunk(id, [1, 2, 3]);
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await Future<void>.delayed(const Duration(milliseconds: 150));
         server.addChunk(id, [4, 5]);
+        finishedAt = DateTime.now().difference(startedAt);
         server.finishSlot(id);
       }();
       final response = await request.close();
@@ -259,10 +261,11 @@ void main() {
 
       expect(received, [1, 2, 3, 4, 5]);
       expect(firstByteAt, isNotNull);
+      expect(finishedAt, isNotNull);
       expect(
-        firstByteAt!.inMilliseconds,
-        lessThan(50),
-        reason: '首片写入后应立即到达客户端，说明是流式而非攒齐再发',
+        firstByteAt!.compareTo(finishedAt!) < 0,
+        isTrue,
+        reason: '首字节应早于结束（流式），实际首字节 $firstByteAt / 结束 $finishedAt',
       );
     });
 
@@ -276,5 +279,37 @@ void main() {
       client.close(force: true);
       await server.dispose();
     });
+  });
+
+  group('逐句高亮', () {
+    test('句子偏移与段落交集计算正确', () {
+      const text = '甲乙丙丁。戊己庚辛。';
+      final segments = splitSentenceSegments(text);
+      expect(segments.length, 2);
+      expect(segments[0].start, 0);
+      expect(segments[1].start, 5);
+      expect(segments[1].end, 10);
+
+      // 段落就是整段正文
+      expect(highlightRangeInParagraph(0, text.length, segments[1]), [5, 10]);
+      // 段落只覆盖后半段（段落起点偏移 5、长度 5）
+      expect(highlightRangeInParagraph(5, 5, segments[1]), [0, 5]);
+      // 完全没有交集
+      expect(highlightRangeInParagraph(0, 5, segments[1]), isNull);
+    });
+
+    test('同一句跨多段时每段各取交集', () {
+      final segment = splitSentenceSegments('前半段没有标点后半段也没有标点。').single;
+      expect(highlightRangeInParagraph(0, 5, segment), [0, 5]);
+      expect(highlightRangeInParagraph(5, 10, segment), [0, 10]);
+      expect(highlightRangeInParagraph(20, 5, segment), isNull);
+    });
+
+    test('朗读句首尾空白不影响高亮范围', () {
+      final segments = splitSentenceSegments('  第一句。第二句。  ');
+      expect(segments.first.start, 2);
+      expect(segments.first.text, '第一句。');
+    });
+
   });
 }

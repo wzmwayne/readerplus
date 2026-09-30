@@ -60,10 +60,8 @@ class TtsStreamServer {
     response.headers.contentType = ContentType('audio', 'mpeg');
     response.headers.set(HttpHeaders.acceptRangesHeader, 'none');
     response.headers.chunkedTransferEncoding = true;
-    // 关闭输出缓冲：响应头与后续分片都立即发出，播放器不必等待缓冲
+    // 关闭输出缓冲：分片一到就发出，播放器可以边收边播
     response.bufferOutput = false;
-    // 先发响应头：客户端（播放器）无需等首个音频分片就能建立连接
-    await response.flush();
 
     var sent = 0;
     try {

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +11,8 @@ import 'package:provider/provider.dart';
 import '../models/book.dart';
 import '../models/reader_settings.dart';
 import '../state/app_state.dart';
+import '../services/tts/read_aloud_controller.dart';
+import 'tts_highlight.dart';
 import '../theme/app_theme.dart';
 import 'chapter_paginator.dart';
 
@@ -36,9 +40,12 @@ class _FlatPage {
 ///
 /// 阅读进度按「章节 + 屏幕首行行号」保存（与设备分辨率、字号无关）。
 class ReaderPage extends StatefulWidget {
-  const ReaderPage({super.key, required this.book});
+  const ReaderPage({super.key, required this.book, this.readAloud});
 
   final Book book;
+
+  /// 可注入的朗读控制器（测试用）；为空时按需自行创建。
+  final ReadAloudController? readAloud;
 
   @override
   State<ReaderPage> createState() => _ReaderPageState();
@@ -76,6 +83,21 @@ class _ReaderPageState extends State<ReaderPage>
   final PageController _slideController = PageController();
   final ScrollController _scrollController = ScrollController();
 
+  ReadAloudController? _ttsInstance;
+  bool _autoRead = false;
+
+  ReadAloudController get _tts {
+    final existing = _ttsInstance;
+    if (existing != null) return existing;
+    final controller = widget.readAloud ?? ReadAloudController();
+    final rs = context.read<AppState>().readerSettings;
+    controller
+      ..voice = rs.ttsVoice
+      ..rate = rs.ttsRate;
+    _ttsInstance = controller;
+    return controller;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -104,6 +126,12 @@ class _ReaderPageState extends State<ReaderPage>
     _slideController.dispose();
     _scrollController.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    final tts = _ttsInstance;
+    if (tts != null) {
+      tts.onPageFinished = null;
+      unawaited(tts.stop());
+      if (widget.readAloud == null) tts.dispose();
+    }
     _persistProgress();
     super.dispose();
   }
@@ -153,7 +181,8 @@ class _ReaderPageState extends State<ReaderPage>
   double _tipBarHeight(ReaderSettings rs, {required bool isHeader}) {
     final hasAny = isHeader ? _hasHeader(rs) : _hasFooter(rs);
     if (!hasAny) return 0;
-    final textHeight = rs.textSize * 0.68 * 1.25;
+    // 文字行高固定为 1.0（见 _tipBar），此处预算与实际渲染严格一致
+    final textHeight = rs.textSize * 0.68;
     const padding = 12.0;
     final showLine = isHeader ? rs.showHeaderLine : rs.showFooterLine;
     return textHeight + padding + (showLine ? 8 : 0);
@@ -442,6 +471,163 @@ class _ReaderPageState extends State<ReaderPage>
     );
   }
 
+  // ---------------- 朗读 ----------------
+
+  /// 当前页正文（段落按顺序拼接，与分页渲染的文本一致）。
+  String get _pagePlainText {
+    final flat = _current;
+    if (flat == null) return '';
+    return flat.page.paragraphs.map((p) => p.text).join('\n');
+  }
+
+  Future<void> _toggleReadAloud() async {
+    if (kDebugMode) debugPrint('[tts] toggle autoRead=$_autoRead');
+    if (_autoRead) {
+      await _stopReadAloud();
+      return;
+    }
+    setState(() {
+      _autoRead = true;
+      _menuVisible = false;
+    });
+    await _startPageRead();
+  }
+
+  Future<void> _startPageRead() async {
+    final text = _pagePlainText;
+    if (text.trim().isEmpty) return;
+    final tts = _tts;
+    tts.onPageFinished = _onPageReadFinished;
+    await tts.start(text);
+    if (mounted) setState(() {});
+  }
+
+  /// 本页读完：立即续读下一页（朗读不需要翻页动画）。
+  void _onPageReadFinished() {
+    if (!mounted || !_autoRead) return;
+    if (_flatIndex + 1 >= _flat.length) {
+      unawaited(_stopReadAloud());
+      return;
+    }
+    _applyTurn(1);
+    unawaited(_startPageRead());
+  }
+
+  Future<void> _stopReadAloud() async {
+    if (!mounted) return;
+    setState(() => _autoRead = false);
+    final tts = _ttsInstance;
+    if (tts != null) {
+      tts.onPageFinished = null;
+      await tts.stop();
+    }
+  }
+
+  /// 正在朗读的句子（用于逐句高亮）。
+  SentenceSegment? get _ttsActiveSegment {
+    final tts = _ttsInstance;
+    if (!_autoRead || tts == null) return null;
+    final segment = tts.currentSegment;
+    if (kDebugMode && segment != null) {
+      debugPrint('[tts] 高亮句 ${segment.start}-${segment.end} ${segment.text}');
+    }
+    return segment;
+  }
+
+  List<({PageParagraph paragraph, int start})> _paragraphRanges(_FlatPage flat) {
+    final result = <({PageParagraph paragraph, int start})>[];
+    var offset = 0;
+    for (final paragraph in flat.page.paragraphs) {
+      result.add((paragraph: paragraph, start: offset));
+      offset += paragraph.text.length + 1; // +1 为段落间的换行
+    }
+    return result;
+  }
+
+  Widget _ttsText(
+    ({PageParagraph paragraph, int start}) entry,
+    TextStyle style,
+    TextStyle highlight,
+  ) {
+    final paragraph = entry.paragraph;
+    final segment = _ttsActiveSegment;
+    return HighlightedText(
+      text: paragraph.text,
+      style: style,
+      highlightStyle: highlight,
+      highlightRange: segment == null
+          ? null
+          : highlightRangeInParagraph(
+              entry.start,
+              paragraph.text.length,
+              segment,
+            ),
+    );
+  }
+
+  /// 正文段落；朗读时只重建这段文本（每句一次），不重建整页。
+  ///
+  /// 段落必须在 builder 内部构建：否则 ListenableBuilder 重建时会复用同一批
+  /// widget 实例，高亮不会随句子推进而刷新。
+  Widget _paragraphArea(ReaderSettings rs, _FlatPage? flat) {
+    final style = _textStyle(rs);
+    // 只改背景色：任何影响字形度量的样式（如加粗）都会改变换行，
+    // 导致渲染高度与分页计算不一致而溢出。
+    final highlightStyle = style.copyWith(
+      backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.32),
+    );
+    Widget buildParagraphs() => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (flat != null)
+          for (final entry in _paragraphRanges(flat))
+            Padding(
+              padding: EdgeInsets.only(bottom: entry.paragraph.gapAfter),
+              child: _ttsText(entry, style, highlightStyle),
+            ),
+      ],
+    );
+    final tts = _ttsInstance;
+    if (tts == null) return buildParagraphs();
+    return ListenableBuilder(
+      listenable: tts,
+      builder: (context, _) => buildParagraphs(),
+    );
+  }
+
+  Widget _readAloudBar() => ListenableBuilder(
+    listenable: _tts,
+    builder: (context, _) => Row(
+      children: [
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          icon: Icon(
+            _tts.isPaused ? Icons.play_arrow : Icons.pause,
+            color: Colors.white,
+          ),
+          onPressed: () => _tts.isPaused ? _tts.resume() : _tts.pause(),
+        ),
+        Expanded(
+          child: Text(
+            _tts.currentSentence,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ),
+        Text(
+          '${_tts.index + 1}/${_tts.segments.length}',
+          style: const TextStyle(color: Colors.white54, fontSize: 11),
+        ),
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.stop, color: Colors.white),
+          onPressed: () => unawaited(_stopReadAloud()),
+        ),
+      ],
+    ),
+  );
+
   // ---------------- 构建 ----------------
 
   @override
@@ -624,20 +810,7 @@ class _ReaderPageState extends State<ReaderPage>
               height: headerHeight,
               child: _tipBar(rs, isHeader: true, flat: flat),
             ),
-          Expanded(
-            child: ClipRect(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (flat != null)
-                    for (final para in flat.page.paragraphs) ...[
-                      Text(para.text, style: _textStyle(rs)),
-                      if (para.gapAfter > 0) SizedBox(height: para.gapAfter),
-                    ],
-                ],
-              ),
-            ),
-          ),
+          Expanded(child: ClipRect(child: _paragraphArea(rs, flat))),
           if (footerHeight > 0)
             SizedBox(
               height: footerHeight,
@@ -651,6 +824,7 @@ class _ReaderPageState extends State<ReaderPage>
   Widget _tipBar(ReaderSettings rs, {required bool isHeader, _FlatPage? flat}) {
     final style = TextStyle(
       fontSize: rs.textSize * 0.68,
+      height: 1.0,
       color: parseHexColor(rs.textColor, fallback: Colors.black)
           .withValues(alpha: 0.65),
     );
@@ -982,6 +1156,12 @@ class _ReaderPageState extends State<ReaderPage>
         side: side,
       ),
       _menuButton(
+        _autoRead ? Icons.stop_circle_outlined : Icons.record_voice_over_outlined,
+        _autoRead ? '停止' : '朗读',
+        () => unawaited(_toggleReadAloud()),
+        side: side,
+      ),
+      _menuButton(
         Icons.brightness_6,
         '亮度',
         () => _togglePanel('bright'),
@@ -1026,6 +1206,10 @@ class _ReaderPageState extends State<ReaderPage>
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
+            if (_ttsInstance?.isActive ?? false) ...[
+              const Divider(color: Colors.white24, height: 12),
+              _readAloudBar(),
+            ],
             const Divider(color: Colors.white24, height: 20),
             for (final button in buttons) button,
           ],
@@ -1063,6 +1247,7 @@ class _ReaderPageState extends State<ReaderPage>
                   ),
                 ],
               ),
+              if (_ttsInstance?.isActive ?? false) _readAloudBar(),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: buttons,

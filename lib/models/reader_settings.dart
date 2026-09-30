@@ -213,6 +213,10 @@ class ReaderSettings {
   /// 横屏时是否把顶栏/底栏显示到左右两侧。
   bool landscapeSideMenu;
 
+  /// 朗读音色（Edge TTS 中文音色）与语速。
+  String ttsVoice;
+  String ttsRate;
+
   TipMode footerMiddle;
   TipMode footerRight;
   bool showHeaderLine;
@@ -243,6 +247,8 @@ class ReaderSettings {
     this.footerLeft = TipMode.progress,
     this.footerMiddle = TipMode.none,
     this.landscapeSideMenu = true,
+    this.ttsVoice = 'zh-CN-XiaoxiaoNeural',
+    this.ttsRate = '+0%',
     this.footerRight = TipMode.pageIndex,
     this.showHeaderLine = false,
     this.showFooterLine = true,
@@ -291,6 +297,8 @@ class ReaderSettings {
     'footerLeft': footerLeft.name,
     'footerMiddle': footerMiddle.name,
     'landscapeSideMenu': landscapeSideMenu,
+      'ttsVoice': ttsVoice,
+      'ttsRate': ttsRate,
     'footerRight': footerRight.name,
     'showHeaderLine': showHeaderLine,
     'showFooterLine': showFooterLine,
@@ -321,6 +329,8 @@ class ReaderSettings {
     footerLeft: TipMode.parse(json['footerLeft'] as String?),
     footerMiddle: TipMode.parse(json['footerMiddle'] as String?),
     landscapeSideMenu: json['landscapeSideMenu'] as bool? ?? true,
+      ttsVoice: json['ttsVoice'] as String? ?? 'zh-CN-XiaoxiaoNeural',
+      ttsRate: json['ttsRate'] as String? ?? '+0%',
     footerRight: TipMode.parse(json['footerRight'] as String?),
     showHeaderLine: json['showHeaderLine'] as bool? ?? false,
     showFooterLine: json['showFooterLine'] as bool? ?? true,

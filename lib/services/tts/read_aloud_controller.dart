@@ -27,51 +27,103 @@ Stream<List<int>> _defaultSynthesize({
   pitch: pitch,
 );
 
-/// 按句切分文本：句末标点后断句，过长片段再按逗号/长度切分。
-List<String> splitSentences(String text, {int maxLength = 120}) {
-  final normalized = text.replaceAll(RegExp(r'[ \t\u3000]+'), ' ').trim();
-  if (normalized.isEmpty) return const [];
+/// 一句话在原文中的位置（用于逐句高亮）。
+class SentenceSegment {
+  const SentenceSegment({
+    required this.text,
+    required this.start,
+    required this.end,
+  });
 
-  final sentences = <String>[];
-  final buffer = StringBuffer();
+  final String text;
+  final int start;
+  final int end;
 
-  void flush() {
-    final s = buffer.toString().trim();
-    buffer.clear();
-    if (s.isNotEmpty) sentences.add(s);
+  bool overlaps(int from, int to) => start < to && end > from;
+}
+
+bool _isSpace(int c) => c == 32 || c == 9 || c == 10 || c == 13 || c == 0x3000;
+
+/// 按句切分并给出每句在原文中的偏移（不改变原文，便于精确定位高亮）。
+List<SentenceSegment> splitSentenceSegments(String text, {int maxLength = 120}) {
+  if (text.trim().isEmpty) return const [];
+  final enders = RegExp(r'[。！？!?…；;\n]');
+  final raw = <SentenceSegment>[];
+
+  var start = 0;
+  for (var i = 0; i < text.length; i++) {
+    if (enders.hasMatch(text[i])) {
+      _addTrimmed(raw, text, start, i + 1);
+      start = i + 1;
+    }
   }
+  _addTrimmed(raw, text, start, text.length);
 
-  final enders = RegExp(r'[。！？!?…；;]');
-  for (final char in normalized.runes) {
-    buffer.writeCharCode(char);
-    if (enders.hasMatch(String.fromCharCode(char))) flush();
-  }
-  flush();
-
-  final result = <String>[];
-  for (final sentence in sentences) {
-    if (sentence.length <= maxLength) {
-      result.add(sentence);
+  final result = <SentenceSegment>[];
+  for (final segment in raw) {
+    if (segment.text.length <= maxLength) {
+      result.add(segment);
       continue;
     }
-    var rest = sentence;
-    while (rest.length > maxLength) {
-      var cut = -1;
-      for (final mark in ['，', '、', ',', ' ']) {
-        final idx = rest.lastIndexOf(mark, maxLength);
-        if (idx > maxLength ~/ 3) {
-          cut = idx + 1;
-          break;
+    var offset = segment.start;
+    while (offset < segment.end) {
+      var end = offset + maxLength;
+      if (end >= segment.end) {
+        end = segment.end;
+      } else {
+        var cut = -1;
+        for (final mark in ['，', '、', ',', ' ']) {
+          final idx = text.lastIndexOf(mark, end);
+          if (idx > offset + maxLength ~/ 3) {
+            cut = idx + 1;
+            break;
+          }
         }
+        if (cut > offset) end = cut;
       }
-      if (cut <= 0) cut = maxLength;
-      result.add(rest.substring(0, cut).trim());
-      rest = rest.substring(cut);
+      _addTrimmed(result, text, offset, end);
+      offset = end;
     }
-    if (rest.trim().isNotEmpty) result.add(rest.trim());
   }
   return result;
 }
+
+void _addTrimmed(
+  List<SentenceSegment> out,
+  String source,
+  int from,
+  int to,
+) {
+  var s = from;
+  var e = to;
+  while (s < e && _isSpace(source.codeUnitAt(s))) {
+    s++;
+  }
+  while (e > s && _isSpace(source.codeUnitAt(e - 1))) {
+    e--;
+  }
+  if (e <= s) return;
+  out.add(SentenceSegment(text: source.substring(s, e), start: s, end: e));
+}
+
+/// 计算某段落内需要高亮的范围（相对段落文本起点）；无交集返回 null。
+List<int>? highlightRangeInParagraph(
+  int paragraphStart,
+  int paragraphLength,
+  SentenceSegment segment,
+) {
+  final paragraphEnd = paragraphStart + paragraphLength;
+  final from = segment.start > paragraphStart ? segment.start : paragraphStart;
+  final to = segment.end < paragraphEnd ? segment.end : paragraphEnd;
+  if (to <= from) return null;
+  return <int>[from - paragraphStart, to - paragraphStart];
+}
+
+/// 只要句子文本（等价于 [splitSentenceSegments] 的文本投影）。
+List<String> splitSentences(String text, {int maxLength = 120}) =>
+    splitSentenceSegments(text, maxLength: maxLength)
+        .map((segment) => segment.text)
+        .toList();
 
 /// 一句朗读任务：负责把该句的音频边合成边灌进流式服务。
 class _SentenceJob {
@@ -114,7 +166,7 @@ class ReadAloudController extends ChangeNotifier {
   String rate = '+0%';
   String pitch = '+0Hz';
 
-  final List<String> _sentences = [];
+  final List<SentenceSegment> _segments = [];
   final List<_SentenceJob> _jobs = [];
   int _index = 0;
   bool _active = false;
@@ -123,10 +175,18 @@ class ReadAloudController extends ChangeNotifier {
   /// 一页播完时回调（用于自动翻页）。
   VoidCallback? onPageFinished;
 
-  List<String> get sentences => List.unmodifiable(_sentences);
+  List<SentenceSegment> get segments => List.unmodifiable(_segments);
+  List<String> get sentences =>
+      _segments.map((segment) => segment.text).toList();
   int get index => _index;
   String get currentSentence =>
-      _index >= 0 && _index < _sentences.length ? _sentences[_index] : '';
+      _index >= 0 && _index < _segments.length ? _segments[_index].text : '';
+
+  /// 当前正在朗读的句子在原文中的范围（未朗读时为 null）。
+  SentenceSegment? get currentSegment =>
+      isPlaying && _index >= 0 && _index < _segments.length
+      ? _segments[_index]
+      : null;
   bool get isActive => _active;
   bool get isPaused => _paused;
   bool get isPlaying => _active && !_paused;
@@ -137,10 +197,10 @@ class ReadAloudController extends ChangeNotifier {
 
   Future<void> start(String text) async {
     await stop();
-    _sentences
+    _segments
       ..clear()
-      ..addAll(splitSentences(text));
-    _active = _sentences.isNotEmpty;
+      ..addAll(splitSentenceSegments(text));
+    _active = _segments.isNotEmpty;
     _paused = false;
     _index = 0;
     if (!_active) {
@@ -151,8 +211,8 @@ class ReadAloudController extends ChangeNotifier {
     _jobs
       ..clear()
       ..addAll([
-        for (final sentence in _sentences)
-          _SentenceJob(text: sentence, slotId: _server.createSlot()),
+        for (final segment in _segments)
+          _SentenceJob(text: segment.text, slotId: _server.createSlot()),
       ]);
     _pumpPreload();
     notifyListeners();
@@ -178,7 +238,7 @@ class ReadAloudController extends ChangeNotifier {
     _active = false;
     _paused = false;
     _index = 0;
-    _sentences.clear();
+    _segments.clear();
     for (final job in _jobs) {
       job.finished = true;
       _server.disposeSlot(job.slotId);
@@ -200,7 +260,8 @@ class ReadAloudController extends ChangeNotifier {
   Future<void> _fill(_SentenceJob job) async {
     try {
       await for (final chunk in _synthesize(
-        text: job.text,
+        // 段落换行对合成无意义，替换为空格
+        text: job.text.replaceAll('\n', ' ').trim(),
         voice: voice,
         rate: rate,
         pitch: pitch,
