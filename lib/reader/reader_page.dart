@@ -680,13 +680,12 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
           opacity: _menuVisible ? 1 : 0,
           child: sideBars
               ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(
-                      width: 52,
-                      child: RotatedBox(
-                        quarterTurns: 3,
-                        child: _menuTop(state, vertical: true),
-                      ),
+                    // 左侧：原顶栏的内容，竖向排布
+                    _sidePanel(
+                      width: _sideWidth,
+                      child: _menuTop(state, side: true),
                     ),
                     Expanded(
                       child: _panel == null
@@ -698,12 +697,10 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
                               ),
                             ),
                     ),
-                    SizedBox(
-                      width: 52,
-                      child: RotatedBox(
-                        quarterTurns: 1,
-                        child: _menuBottom(rs, state, vertical: true),
-                      ),
+                    // 右侧：原底栏的内容，竖向排布
+                    _sidePanel(
+                      width: _sideWidth,
+                      child: _menuBottom(rs, state, side: true),
                     ),
                   ],
                 )
@@ -720,85 +717,203 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     );
   }
 
-  Widget _menuTop(AppState state, {bool vertical = false}) {
-    final bar = Material(
+  /// 侧栏宽度：随窗口宽度自适应，保证图标 + 文字排版舒适。
+  double get _sideWidth => (_viewport.width * 0.22).clamp(132.0, 208.0);
+
+  Widget _sidePanel({required double width, required Widget child}) => SizedBox(
+    width: width,
+    child: Material(
+      color: Colors.black.withValues(alpha: 0.78),
+      child: SafeArea(child: child),
+    ),
+  );
+
+  /// 竖向章节进度条：直接上下拖动跳章（不使用旋转）。
+  Widget _verticalChapterProgress() => LayoutBuilder(
+    builder: (context, constraints) {
+      final height = constraints.maxHeight;
+      if (height <= 0) return const SizedBox.shrink();
+      final maxIndex = math.max(1, _chapters.length - 1);
+      final ratio = (_chapterIndex / maxIndex).clamp(0.0, 1.0);
+      void seek(double dy) {
+        final t = (dy / height).clamp(0.0, 1.0);
+        _goChapter((t * maxIndex).round());
+      }
+
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (d) => seek(d.localPosition.dy),
+        onVerticalDragUpdate: (d) => seek(d.localPosition.dy),
+        child: SizedBox(
+          width: 32,
+          height: height,
+          child: Stack(
+            alignment: Alignment.topCenter,
+            children: [
+              Center(
+                child: Container(
+                  width: 4,
+                  height: height,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: ((height - 18) * ratio).clamp(0.0, math.max(0.0, height - 18)),
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  Widget _menuTop(AppState state, {bool side = false}) {
+    final title = Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.book.title,
+          maxLines: side ? 3 : 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white, fontSize: 15),
+        ),
+        Text(
+          _chapters.isEmpty ? '' : _chapters[_chapterIndex].title,
+          maxLines: side ? 3 : 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white60, fontSize: 12),
+        ),
+      ],
+    );
+    final backButton = IconButton(
+      icon: const Icon(Icons.arrow_back, color: Colors.white),
+      tooltip: '返回',
+      onPressed: () async {
+        await _persistProgress();
+        if (mounted) Navigator.of(context).pop();
+      },
+    );
+    final moreButton = PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, color: Colors.white),
+      onSelected: _onMenuAction,
+      itemBuilder: (context) => [
+        const PopupMenuItem(value: 'night', child: Text('切换夜间/日间')),
+        CheckedPopupMenuItem(
+          value: 'sideMenu',
+          checked: _rs.landscapeSideMenu,
+          child: const Text('横屏时菜单显示在左右'),
+        ),
+      ],
+    );
+
+    if (side) {
+      // 竖排侧栏：返回与更多在同一行，下面依次是书名与章节名
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [backButton, const Spacer(), moreButton],
+            ),
+            const SizedBox(height: 8),
+            title,
+          ],
+        ),
+      );
+    }
+
+    return Material(
       color: Colors.black.withValues(alpha: 0.72),
       child: SafeArea(
         bottom: false,
         child: SizedBox(
-          height: vertical ? null : 52,
+          height: 52,
           child: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () async {
-                  await _persistProgress();
-                  if (mounted) Navigator.of(context).pop();
-                },
-              ),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.book.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 15),
-                    ),
-                    Text(
-                      _chapters.isEmpty ? '' : _chapters[_chapterIndex].title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white60, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, color: Colors.white),
-                onSelected: (value) {
-                  final rs = _rs;
-                  switch (value) {
-                    case 'night':
-                      setState(() {
-                        rs.nightMode = !rs.nightMode;
-                        final style = kReadingStyles[
-                            rs.styleIndex.clamp(0, kReadingStyles.length - 1)];
-                        rs.bgColor =
-                            rs.nightMode ? style.bgColorNight : style.bgColor;
-                        rs.textColor = rs.nightMode
-                            ? style.textColorNight
-                            : style.textColor;
-                        _paginateSignature = '';
-                      });
-                      state.saveReaderSettings();
-                    case 'sideMenu':
-                      setState(() {
-                        rs.landscapeSideMenu = !rs.landscapeSideMenu;
-                      });
-                      state.saveReaderSettings();
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(value: 'night', child: Text('切换夜间/日间')),
-                  CheckedPopupMenuItem(
-                    value: 'sideMenu',
-                    checked: _rs.landscapeSideMenu,
-                    child: const Text('横屏时菜单显示在左右'),
-                  ),
-                ],
-              ),
+              backButton,
+              Expanded(child: title),
+              moreButton,
             ],
           ),
         ),
       ),
     );
-    return bar;
   }
 
-  Widget _menuBottom(ReaderSettings rs, AppState state, {bool vertical = false}) {
+  void _onMenuAction(String value) {
+    final state = context.read<AppState>();
+    final rs = _rs;
+    switch (value) {
+      case 'night':
+        setState(() {
+          rs.nightMode = !rs.nightMode;
+          final style =
+              kReadingStyles[rs.styleIndex.clamp(0, kReadingStyles.length - 1)];
+          rs.bgColor = rs.nightMode ? style.bgColorNight : style.bgColor;
+          rs.textColor = rs.nightMode ? style.textColorNight : style.textColor;
+          _paginateSignature = '';
+        });
+        state.saveReaderSettings();
+      case 'sideMenu':
+        setState(() => rs.landscapeSideMenu = !rs.landscapeSideMenu);
+        state.saveReaderSettings();
+    }
+  }
+
+  Widget _menuBottom(ReaderSettings rs, AppState state, {bool side = false}) {
+    final buttons = <Widget>[
+      _menuButton(Icons.list, '目录', () => setState(() => _tocVisible = !_tocVisible),
+          side: side),
+      _menuButton(Icons.brightness_6, '亮度', () => _togglePanel('bright'),
+          side: side),
+      _menuButton(Icons.color_lens_outlined, '背景', () => _togglePanel('bg'),
+          side: side),
+      _menuButton(Icons.text_fields, '字号', () => _togglePanel('font'),
+          side: side),
+      _menuButton(Icons.auto_stories_outlined, '翻页', () => _togglePanel('page'),
+          side: side),
+    ];
+
+    if (side) {
+      // 竖排侧栏：进度百分比、竖向章节进度条、章节序号，随后是功能按钮
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(6, 12, 6, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${(_bookProgress * 100).toStringAsFixed(1)}%',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Expanded(child: Center(child: _verticalChapterProgress())),
+            const SizedBox(height: 8),
+            Text(
+              '${_chapterIndex + 1}/${_chapters.length} 章',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const Divider(color: Colors.white24, height: 20),
+            for (final button in buttons) button,
+          ],
+        ),
+      );
+    }
+
     return Material(
       color: Colors.black.withValues(alpha: 0.72),
       child: SafeArea(
@@ -831,14 +946,7 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _menuButton(Icons.list, '目录',
-                      () => setState(() => _tocVisible = !_tocVisible)),
-                  _menuButton(Icons.brightness_6, '亮度', () => _togglePanel('bright')),
-                  _menuButton(Icons.color_lens_outlined, '背景', () => _togglePanel('bg')),
-                  _menuButton(Icons.text_fields, '字号', () => _togglePanel('font')),
-                  _menuButton(Icons.auto_stories_outlined, '翻页', () => _togglePanel('page')),
-                ],
+                children: buttons,
               ),
             ],
           ),
@@ -847,20 +955,49 @@ class _ReaderPageState extends State<ReaderPage> with SingleTickerProviderStateM
     );
   }
 
-  Widget _menuButton(IconData icon, String label, VoidCallback onTap) => InkWell(
-    onTap: onTap,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.white, size: 22),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-        ],
+  Widget _menuButton(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    bool side = false,
+  }) {
+    if (side) {
+      // 竖排侧栏：图标 + 文字横向并排，垂直堆叠，保持文字正向可读
+      return InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white, size: 22),
+            const SizedBox(height: 4),
+            Text(label,
+                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   void _togglePanel(String name) {
     setState(() => _panel = _panel == name ? null : name);
