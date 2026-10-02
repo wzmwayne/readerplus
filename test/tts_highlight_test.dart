@@ -64,8 +64,11 @@ void main() {
   });
 
   testWidgets('高亮样式不改动文字度量（否则会破坏分页）', (tester) async {
-    // 只允许改背景色：字号/行高/字距/字重/字体都必须与正文一致
-    final highlight = style.copyWith(backgroundColor: mark);
+    // 橙色背景 + 视觉加粗，但字号/行高/字距/字重/字体必须与正文完全一致
+    final highlight = readAloudHighlightStyle(style);
+    expect(highlight.backgroundColor, kReadAloudHighlight);
+    expect(highlight.shadows, isNotEmpty, reason: '用阴影描粗实现加粗');
+    expect(highlight.fontWeight, style.fontWeight, reason: '不得真的改字重');
     expect(highlight.fontSize, style.fontSize);
     expect(highlight.height, style.height);
     expect(highlight.letterSpacing, style.letterSpacing);
@@ -84,9 +87,12 @@ void main() {
       ),
     );
     final spans = collect(tester.widget<RichText>(find.byType(RichText)).text);
-    final marked = spans.where((s) => s.style?.backgroundColor == mark).single;
+    final marked = spans
+        .where((s) => s.style?.backgroundColor == kReadAloudHighlight)
+        .single;
     expect(marked.text, '度量一致');
     expect(marked.style?.fontWeight, style.fontWeight);
+    expect(marked.style?.fontSize, style.fontSize);
   });
 
   testWidgets('没有朗读句时是普通文本', (tester) async {

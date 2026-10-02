@@ -38,6 +38,9 @@ class TtsStreamServer {
   /// 标记该句合成结束。
   void finishSlot(String id) => _slots[id]?.finish();
 
+  /// 重试前清空槽内已收到的分片（此时播放器尚未请求，不会打断播放）。
+  void resetSlot(String id) => _slots[id]?.reset();
+
   /// 释放槽位（播放结束或停止朗读时调用）。
   void disposeSlot(String id) => _slots.remove(id);
 
@@ -138,4 +141,9 @@ class _TtsSlot {
   }
 
   void close() => finish();
+
+  void reset() {
+    bytes.clear();
+    isFinished = false;
+  }
 }

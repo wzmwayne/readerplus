@@ -179,6 +179,9 @@ class ReadAloudController extends ChangeNotifier {
   /// 最近一次失败原因（合成/播放），成功后清空。
   String? lastError;
 
+  /// 合成串行队列的队尾。
+  Future<void> _synthesisQueue = Future<void>.value();
+
   List<SentenceSegment> get segments => List.unmodifiable(_segments);
   List<String> get sentences =>
       _segments.map((segment) => segment.text).toList();
@@ -253,16 +256,50 @@ class ReadAloudController extends ChangeNotifier {
     if (wasActive) await _sink.stop();
   }
 
-  /// 让 [from, from + preloadAhead] 区间内的句子开始并行合成。
+  /// 让 [from, from + preloadAhead] 区间内的句子排队合成。
+  ///
+  /// 逐个合成（不做多连接并发）：并发请求容易被对端限流，
+  /// 表现为前几句正常、之后全部失败（即「只读了一两句」）。
   void _pumpPreload() {
     for (var i = _index; i <= _index + preloadAhead && i < _jobs.length; i++) {
       final job = _jobs[i];
-      job.synthesis ??= _fill(job);
+      job.synthesis ??= _enqueue(job);
     }
   }
 
-  /// 把一句的合成分片写入流式服务；首片到达即完成 [firstChunk]。
+  /// 串行队列：保证同一时间只有一次合成连接。
+  Future<void> _enqueue(_SentenceJob job) async {
+    final previous = _synthesisQueue;
+    final completer = Completer<void>();
+    _synthesisQueue = completer.future;
+    await previous;
+    try {
+      await _fill(job);
+    } finally {
+      // 连接之间留一点间隔，降低被限流的概率
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      completer.complete();
+    }
+  }
+
+  /// 合成一句，失败（且尚未收到任何分片）时重试。
   Future<void> _fill(_SentenceJob job) async {
+    const maxAttempts = 3;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      final ok = await _fillOnce(job);
+      if (ok || !_active || job.finished) return;
+      _server.resetSlot(job.slotId);
+      await Future<void>.delayed(Duration(milliseconds: 300 * attempt));
+    }
+    _server.finishSlot(job.slotId);
+    if (!job.firstChunk.isCompleted) job.firstChunk.complete();
+  }
+
+  /// 把一句的合成分片写入流式服务；首片到达即完成 [firstChunk]。
+  ///
+  /// 返回是否成功取到音频；失败时由调用方决定是否重试。
+  Future<bool> _fillOnce(_SentenceJob job) async {
+    var received = false;
     try {
       await for (final chunk in _synthesize(
         // 段落换行对合成无意义，替换为空格
@@ -271,9 +308,11 @@ class ReadAloudController extends ChangeNotifier {
         rate: rate,
         pitch: pitch,
       )) {
-        if (!_active || job.finished) return;
+        if (!_active || job.finished) return received;
         if (chunk.isEmpty) continue;
         job.bytesReceived += chunk.length;
+        received = true;
+        lastError = null;
         _server.addChunk(job.slotId, chunk);
         if (!job.firstChunk.isCompleted) job.firstChunk.complete();
       }
@@ -281,10 +320,9 @@ class ReadAloudController extends ChangeNotifier {
       lastError = '合成失败：$e';
       if (kDebugMode) debugPrint('[tts] 合成失败：$e');
       notifyListeners();
-    } finally {
-      _server.finishSlot(job.slotId);
-      if (!job.firstChunk.isCompleted) job.firstChunk.complete();
+      return false;
     }
+    return received;
   }
 
   Future<void> _playFrom(int index) async {

@@ -621,11 +621,8 @@ class _ReaderPageState extends State<ReaderPage>
   /// widget 实例，高亮不会随句子推进而刷新。
   Widget _paragraphArea(ReaderSettings rs, _FlatPage? flat) {
     final style = _textStyle(rs);
-    // 只改背景色：任何影响字形度量的样式（如加粗）都会改变换行，
-    // 导致渲染高度与分页计算不一致而溢出。
-    final highlightStyle = style.copyWith(
-      backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.32),
-    );
+    // 橙色背景 + 视觉加粗；样式实现保证字形度量不变，分页结果始终成立
+    final highlightStyle = readAloudHighlightStyle(style);
     Widget buildParagraphs() => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

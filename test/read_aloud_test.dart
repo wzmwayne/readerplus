@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader/services/tts/read_aloud_controller.dart';
@@ -112,16 +113,18 @@ void main() {
   });
 
   group('多句预载', () {
-    test('起始即并行合成 preloadAhead + 1 句', () async {
+    test('起始即排队合成 preloadAhead + 1 句（串行、不越界）', () async {
       final controller = ReadAloudController(
         sink: sink,
         preloadAhead: 3,
         synthesize: fakeSynth(log: log),
       );
       await controller.start('一。二。三。四。五。六。');
-      await Future<void>.delayed(Duration.zero);
+      // 串行队列逐句合成，等待队列跑完
+      await Future<void>.delayed(const Duration(milliseconds: 900));
       expect(log, ['一。', '二。', '三。', '四。']);
       expect(controller.preloadedCount, 4);
+      expect(log, isNot(contains('五。')), reason: '不应越过预载窗口');
       await controller.stop();
     });
 
@@ -132,7 +135,7 @@ void main() {
         synthesize: fakeSynth(log: log),
       );
       await controller.start('一。二。三。四。');
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
       expect(log, ['一。', '二。']);
       await controller.stop();
     });
@@ -183,12 +186,12 @@ void main() {
       expect(controller.currentSentence, '甲句。');
 
       sink.finishCurrent();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
       expect(sink.played.length, 2);
       expect(controller.currentSentence, '乙句。');
 
       sink.finishCurrent();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
       expect(controller.isActive, isFalse);
       expect(finished, 1);
     });
@@ -326,5 +329,53 @@ void main() {
       expect(segments.first.text, '第一句。');
     });
 
+  });
+
+  group('合成稳定性（避免只读前一两句）', () {
+    test('合成失败会重试，成功后继续播放', () async {
+      final attempts = <String, int>{};
+      final controller = ReadAloudController(
+        sink: sink,
+        preloadAhead: 2,
+        synthesize: ({required text, required voice, rate = '+0%', pitch = '+0Hz'}) {
+          attempts[text] = (attempts[text] ?? 0) + 1;
+          if (text == '一。' && attempts[text] == 1) {
+            return Stream<List<int>>.error(const SocketException('对端限流'));
+          }
+          return Stream<List<int>>.fromIterable([
+            [65],
+            [66],
+          ]);
+        },
+      );
+      await controller.start('一。二。');
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      expect(attempts['一。'], greaterThanOrEqualTo(2), reason: '第一句应重试');
+      expect(sink.played, isNotEmpty, reason: '重试成功后应能播放');
+      await controller.stop();
+    });
+
+    test('合成严格串行，避免并发连接被限流', () async {
+      var concurrent = 0;
+      var maxConcurrent = 0;
+      final controller = ReadAloudController(
+        sink: sink,
+        preloadAhead: 3,
+        synthesize: ({required text, required voice, rate = '+0%', pitch = '+0Hz'}) =>
+            Stream<List<int>>.fromFuture(
+              Future<List<int>>(() async {
+                concurrent++;
+                maxConcurrent = math.max(maxConcurrent, concurrent);
+                await Future<void>.delayed(const Duration(milliseconds: 20));
+                concurrent--;
+                return [1];
+              }),
+            ),
+      );
+      await controller.start('一。二。三。四。');
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(maxConcurrent, 1, reason: '同一时间只应有一个合成连接');
+      await controller.stop();
+    });
   });
 }
