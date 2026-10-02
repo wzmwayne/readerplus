@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:serious_python/serious_python.dart';
 
 import 'plugin_sandbox.dart';
@@ -14,6 +15,18 @@ class SeriousPythonRuntime implements PluginRuntime {
   @override
   Future<void> runSandbox(String sandboxPath, {required bool audit}) async {
     _cancelled = Completer<void>();
+    // 环境变量在个别平台可能不会传给 Python 进程，因此再写一份"任务指针"文件：
+    // 入口脚本先读环境变量，读不到就按约定路径读这个文件（见 main.py）。
+    try {
+      final support = await getApplicationSupportDirectory();
+      final dataDir = Directory('${support.path}/data');
+      if (!dataDir.existsSync()) await dataDir.create(recursive: true);
+      await File(
+        '${dataDir.path}/readerplus_job.txt',
+      ).writeAsString(sandboxPath, flush: true);
+    } catch (error) {
+      debugPrint('[plugin] 写入任务指针失败：$error');
+    }
     try {
       final run = SeriousPython.run(
         environmentVariables: {
@@ -23,7 +36,15 @@ class SeriousPythonRuntime implements PluginRuntime {
         },
       );
       // 取消时直接结束运行时，不再等待本次调用返回
-      await Future.any([run, _cancelled!.future]);
+      final output = await Future.any<Object?>([run, _cancelled!.future]);
+      // 把 Python 侧输出留档：脚本没写 manifest 时，宿主据此给出线索
+      if (output is String && output.trim().isNotEmpty) {
+        try {
+          await File(
+            '$sandboxPath/runtime_output.txt',
+          ).writeAsString(output, flush: true);
+        } catch (_) {}
+      }
     } on MissingPluginException {
       throw StateError('当前构建未包含 Python 运行时（需要先执行脚本打包）');
     } catch (error) {
@@ -97,11 +118,20 @@ class PluginRunner {
 
     final manifest = await sandbox.readManifest();
     final log = await sandbox.readLog();
+    var traceback = failure ?? manifest.traceback;
+    if (!manifest.ok && failure == null) {
+      // 脚本没写 manifest：多半是 Python 侧没跑起来，附上它的输出便于排查
+      final outputFile = File('${sandbox.root.path}/runtime_output.txt');
+      if (outputFile.existsSync()) {
+        final output = (await outputFile.readAsString()).trim();
+        if (output.isNotEmpty) traceback = '$traceback\n$output';
+      }
+    }
     final ok = failure == null && manifest.ok;
     final result = PluginRunResult(
       ok: ok,
       outputs: ok ? sandbox.listOutputs() : const [],
-      traceback: failure ?? manifest.traceback,
+      traceback: traceback,
       sandboxPath: sandbox.root.path,
       log: log,
     );

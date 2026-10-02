@@ -66,6 +66,10 @@ class _PluginsPageState extends State<PluginsPage> {
         'input_file': 'raw.txt',
         'output_file': 'book.epub',
         'chapter_pattern': r'^第[一二三四五六七八九十百千0-9]+章.*$',
+        'clean_rules': [
+          [r'[\u200b\ufeff]', ''],
+          [r'(?m)^\s*(广告|推广)[:：].*$', ''],
+        ],
       },
       builtin: true,
     );

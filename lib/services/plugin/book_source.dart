@@ -178,10 +178,12 @@ class BookSourceService {
 
   /// 读完产物后清掉保留的沙盒。
   Future<void> _cleanup(PluginRunResult result) async {
-    final dir = Directory(result.sandboxPath);
     try {
+      final dir = Directory(result.sandboxPath);
       if (dir.existsSync()) await dir.delete(recursive: true);
-    } catch (_) {}
+    } catch (_) {
+      // 清理失败不影响结果返回
+    }
   }
 
   /// 从产出的 result.json 读取结构化结果。

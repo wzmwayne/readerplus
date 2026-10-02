@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../services/plugin/plugin_sandbox.dart';
 import '../state/app_state.dart';
+import 'plugin_files_page.dart';
 
 /// 运行一个脚本：前台显示日志（不显示进度），可随时取消，成功后导入产物。
 class PluginRunPage extends StatefulWidget {
@@ -48,14 +49,21 @@ class _PluginRunPageState extends State<PluginRunPage> {
     unawaited(_subscription?.cancel());
     // 清理本次运行保留的沙盒（产物已导入或用户已离开）
     final directory = _sandboxToCleanup;
-    if (directory != null) {
-      final dir = Directory(directory);
-      if (dir.existsSync()) unawaited(dir.delete(recursive: true));
-    }
+    if (directory != null) unawaited(_cleanup(directory));
     super.dispose();
   }
 
   String? _sandboxToCleanup;
+
+  /// 删除保留的沙盒：必须自行兜住异常，否则未捕获的异步异常会让应用闪退。
+  Future<void> _cleanup(String path) async {
+    try {
+      final dir = Directory(path);
+      if (dir.existsSync()) await dir.delete(recursive: true);
+    } catch (error) {
+      debugPrint('[plugin] 清理沙盒失败：$error');
+    }
+  }
 
   Future<void> _run() async {
     final state = context.read<AppState>();
@@ -154,6 +162,19 @@ class _PluginRunPageState extends State<PluginRunPage> {
               icon: const Icon(Icons.refresh),
               label: const Text('重跑'),
             ),
+          if (result?.sandboxPath.isNotEmpty == true)
+            IconButton(
+              tooltip: '查看运行目录 / 导出文件',
+              icon: const Icon(Icons.folder_open),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => PluginFilesPage(
+                    sandboxPath: result!.sandboxPath,
+                    title: '运行目录：${widget.script.name}',
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
       body: Column(
@@ -224,18 +245,29 @@ class _PluginRunPageState extends State<PluginRunPage> {
               ),
             ),
           ),
-          if (!_running && result != null && !result.ok)
+          if (!_running && result != null)
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               child: Row(
                 children: [
                   const Icon(Icons.folder_open, size: 16),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: SelectableText(
-                      '沙盒已保留：${result.sandboxPath}',
-                      style: const TextStyle(fontSize: 12),
+                  const Expanded(
+                    child: Text(
+                      '运行目录已保留，可查看日志/产物并导出到下载目录（离开本页后清理）',
+                      style: TextStyle(fontSize: 12),
                     ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => PluginFilesPage(
+                          sandboxPath: result.sandboxPath,
+                          title: '运行目录：${widget.script.name}',
+                        ),
+                      ),
+                    ),
+                    child: const Text('打开'),
                   ),
                 ],
               ),

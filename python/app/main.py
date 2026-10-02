@@ -121,10 +121,31 @@ def _write_manifest(sandbox_root, payload):
         json.dump(payload, handle, ensure_ascii=False)
 
 
+def _resolve_sandbox_root():
+    """取本次运行的沙盒目录。
+
+    优先环境变量；个别平台不会把环境变量传给 Python 进程，此时退回到
+    宿主写在当前目录（或其 data/ 子目录）里的任务指针文件。
+    """
+    root = os.environ.pop("SANDBOX_ROOT", "")
+    if root:
+        return root
+    for candidate in ("readerplus_job.txt", os.path.join("data", "readerplus_job.txt")):
+        try:
+            with open(candidate, encoding="utf-8") as handle:
+                value = handle.read().strip()
+            if value:
+                print(f"[host] 任务指针：{candidate}")
+                return value
+        except OSError:
+            continue
+    return ""
+
+
 def main():
-    sandbox_root = os.environ.pop("SANDBOX_ROOT", "")
+    sandbox_root = _resolve_sandbox_root()
     if not sandbox_root:
-        print("缺少运行目录", file=sys.stderr)
+        print("缺少运行目录（既没有环境变量也没有任务指针文件）", file=sys.stderr)
         return 2
 
     os.makedirs(sandbox_root, exist_ok=True)
