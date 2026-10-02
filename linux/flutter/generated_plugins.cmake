@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_linux
   file_selector_linux
+  serious_python_linux
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

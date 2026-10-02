@@ -84,7 +84,9 @@ class _ShelfPageState extends State<ShelfPage> {
       body: books.isEmpty
           ? _emptyHint()
           : (settings.gridLayout
-                ? _grid(books, settings.gridColumns)
+                ? _grid(books, MediaQuery.orientationOf(context) == Orientation.landscape
+                    ? settings.gridColumnsLandscape
+                    : settings.gridColumnsPortrait)
                 : _list(books)),
     );
   }

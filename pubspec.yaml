@@ -22,6 +22,9 @@ dependencies:
   # 单一音频实现，覆盖 android/ios/linux/macos/windows/web，无需平台分支
   audioplayers: ^6.8.1
   html: ^0.15.7
+  serious_python:
+    hosted: https://pub.flutter-io.cn
+    version: ^5.0.0
 
 dev_dependencies:
   flutter_test:
@@ -30,3 +33,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - python/examples/txt_cleaner.py
+    - docs/插件开发指南.md

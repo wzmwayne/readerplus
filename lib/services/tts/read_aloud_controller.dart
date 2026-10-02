@@ -321,6 +321,9 @@ class ReadAloudController extends ChangeNotifier {
       if (kDebugMode) debugPrint('[tts] 合成失败：$e');
       notifyListeners();
       return false;
+    } finally {
+      // 必须关闭流槽，否则播放器会一直等音频流结束（表现为卡住、没有声音）
+      _server.finishSlot(job.slotId);
     }
     return received;
   }

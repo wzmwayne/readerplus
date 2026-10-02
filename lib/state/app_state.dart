@@ -7,6 +7,8 @@ import '../models/book.dart';
 import '../models/reader_settings.dart';
 import '../services/backup_service.dart';
 import '../services/library_repository.dart';
+import '../services/plugin/plugin_repository.dart';
+import '../services/plugin/plugin_runner.dart';
 import '../services/storage.dart';
 import '../services/sync_service.dart';
 import '../services/text_cleaner.dart';
@@ -16,6 +18,8 @@ class AppState extends ChangeNotifier {
   AppState();
 
   late Storage storage;
+  late PluginRepository plugins;
+  late PluginRunner pluginRunner;
   late LibraryRepository library;
   late BackupService backup;
   late SyncService sync;
@@ -35,6 +39,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     storage = await Storage.instance();
+    plugins = PluginRepository(storage);
+    pluginRunner = PluginRunner();
     library = LibraryRepository(storage);
     backup = BackupService(storage);
     sync = SyncService(storage);

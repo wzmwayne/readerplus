@@ -101,6 +101,8 @@ class _ReaderPageState extends State<ReaderPage>
   ParagraphSelection? _selection;
   String _selectionText = '';
   Offset _selectionAnchor = Offset.zero;
+  Rect? _selectionRectGlobal;
+  DateTime _lastScrollSync = DateTime.fromMillisecondsSinceEpoch(0);
   int _extendAnchor = 0;
   ParagraphSelection? _selectionAtExtendStart;
 
@@ -702,6 +704,7 @@ class _ReaderPageState extends State<ReaderPage>
           maxWidth: constraints.maxWidth,
           local: details.localPosition,
           global: details.globalPosition,
+          boxContext: context,
           word: true,
         ),
         onLongPressMoveUpdate: (details) => _extendSelection(
@@ -710,6 +713,7 @@ class _ReaderPageState extends State<ReaderPage>
           maxWidth: constraints.maxWidth,
           local: details.localPosition,
           global: details.globalPosition,
+          boxContext: context,
         ),
         onDoubleTapDown: (details) => _startSelection(
           index: index,
@@ -719,6 +723,7 @@ class _ReaderPageState extends State<ReaderPage>
           maxWidth: constraints.maxWidth,
           local: details.localPosition,
           global: details.globalPosition,
+          boxContext: context,
           word: false,
         ),
         child: Stack(
@@ -764,8 +769,8 @@ class _ReaderPageState extends State<ReaderPage>
     if (carets == null) return const [];
 
     Widget handle({required bool isStart, required Offset caret}) => Positioned(
-      left: caret.dx - 9,
-      top: caret.dy + carets.lineHeight - 7,
+      left: caret.dx - 11,
+      top: caret.dy + carets.lineHeight - 9,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanUpdate: (details) => _dragSelectionHandle(
@@ -777,8 +782,8 @@ class _ReaderPageState extends State<ReaderPage>
           boxContext: boxContext,
         ),
         child: Container(
-          width: 18,
-          height: 18,
+          width: 22,
+          height: 22,
           decoration: BoxDecoration(
             color: const Color(0xFF3D5AFE),
             shape: BoxShape.circle,
@@ -827,6 +832,14 @@ class _ReaderPageState extends State<ReaderPage>
               end: hit > selection.start ? hit : selection.start,
             );
     });
+    _updateSelectionRect(
+      boxContext: boxContext,
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      start: _selection!.start,
+      end: _selection!.end,
+    );
   }
 
   void _startSelection({
@@ -837,6 +850,7 @@ class _ReaderPageState extends State<ReaderPage>
     required double maxWidth,
     required Offset local,
     required Offset global,
+    required BuildContext boxContext,
     required bool word,
   }) {
     final hit = charIndexAt(
@@ -857,6 +871,44 @@ class _ReaderPageState extends State<ReaderPage>
       _extendAnchor = hit;
       _selectionAtExtendStart = _selection;
     });
+    _updateSelectionRect(
+      boxContext: boxContext,
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      start: range[0],
+      end: range[1],
+    );
+  }
+
+  /// 记录选区矩形（操作条据此定位，避免遮住选中的文字）。
+  void _updateSelectionRect({
+    required BuildContext boxContext,
+    required String text,
+    required TextStyle style,
+    required double maxWidth,
+    required int start,
+    required int end,
+  }) {
+    final local = selectionRect(
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      start: start,
+      end: end,
+    );
+    final box = boxContext.findRenderObject();
+    if (local == null || box is! RenderBox || !box.attached) {
+      _selectionRectGlobal = null;
+      return;
+    }
+    final origin = box.localToGlobal(local.topLeft);
+    _selectionRectGlobal = Rect.fromLTWH(
+      origin.dx,
+      origin.dy,
+      local.width,
+      local.height,
+    );
   }
 
   /// 长按拖动：把选择扩展到当前手指所在字符。
@@ -866,6 +918,7 @@ class _ReaderPageState extends State<ReaderPage>
     required double maxWidth,
     required Offset local,
     required Offset global,
+    required BuildContext boxContext,
   }) {
     final selection = _selection;
     if (selection == null) return;
@@ -888,11 +941,20 @@ class _ReaderPageState extends State<ReaderPage>
             : hit,
       );
     });
+    _updateSelectionRect(
+      boxContext: boxContext,
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      start: _selection!.start,
+      end: _selection!.end,
+    );
   }
 
   void _clearSelection() {
     if (_selection == null) return;
     _selectionAtExtendStart = null;
+    _selectionRectGlobal = null;
     setState(() => _selection = null);
   }
 
@@ -949,11 +1011,14 @@ class _ReaderPageState extends State<ReaderPage>
   /// 选择操作条（自实现，不用系统菜单）。
   Widget _buildSelectionToolbar() {
     final size = MediaQuery.sizeOf(context);
-    final anchor = _selectionAnchor;
+    final rect = _selectionRectGlobal;
+    final centerX = rect?.center.dx ?? _selectionAnchor.dx;
     final left =
-        (anchor.dx - 84).clamp(8.0, math.max(8.0, size.width - 176)).toDouble();
-    final top =
-        (anchor.dy - 52).clamp(8.0, math.max(8.0, size.height - 52)).toDouble();
+        (centerX - 84).clamp(8.0, math.max(8.0, size.width - 176)).toDouble();
+    // 优先放在选区上方；上方空间不足则放到下方，避免遮住选中的文字
+    var top = rect == null ? _selectionAnchor.dy - 52 : rect.top - 50;
+    if (rect != null && top < 8) top = rect.bottom + 10;
+    top = top.clamp(8.0, math.max(8.0, size.height - 52)).toDouble();
     return Positioned(
       left: left,
       top: top,
@@ -1170,7 +1235,7 @@ class _ReaderPageState extends State<ReaderPage>
               ),
               itemCount: math.max(0, _chapters.length - start),
               itemBuilder: (context, index) =>
-                  _chapterSection(rs, start + index),
+                  RepaintBoundary(child: _chapterSection(rs, start + index)),
             ),
           ),
         );
@@ -1364,8 +1429,11 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification ||
-        notification is ScrollEndNotification) {
+    final isEnd = notification is ScrollEndNotification;
+    // 滚动中节流；停止时一定同步一次，保证进度准确
+    final now = DateTime.now();
+    if (isEnd || now.difference(_lastScrollSync).inMilliseconds >= 80) {
+      _lastScrollSync = now;
       _syncScrollPosition();
     }
     if (notification is ScrollEndNotification) _persistProgress();
@@ -1397,11 +1465,14 @@ class _ReaderPageState extends State<ReaderPage>
               .floor()
               .clamp(0, math.max(0, paragraphs.length - 1))
               .toInt();
-    if (bestChapter != _chapterIndex || index != _scrollParagraphIndex) {
+    if (bestChapter != _chapterIndex) {
       setState(() {
         _chapterIndex = bestChapter!;
         _scrollParagraphIndex = index;
-        });
+      });
+    } else if (index != _scrollParagraphIndex) {
+      // 段落推进不触发重建（阅读时不显示行号）
+      _scrollParagraphIndex = index;
     }
   }
 

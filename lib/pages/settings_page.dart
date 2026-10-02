@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../app_info.dart';
 import '../state/app_state.dart';
+import 'plugins_page.dart';
 import 'settings_read_aloud_section.dart';
 import '../theme/app_theme.dart';
 import 'webdav_page.dart';
@@ -67,19 +68,34 @@ class SettingsPage extends StatelessWidget {
           ListTile(
             title: const Text('每行数量'),
             subtitle: Slider(
-              value: settings.gridColumns.toDouble(),
-              min: 2,
-              max: 6,
-              divisions: 4,
-              label: '${settings.gridColumns}',
+              // 竖屏与横屏各自记忆（竖屏默认 3、横屏默认 6，范围 1-10）
+              value: (MediaQuery.orientationOf(context) == Orientation.landscape
+                      ? settings.gridColumnsLandscape
+                      : settings.gridColumnsPortrait)
+                  .toDouble(),
+              min: 1,
+              max: 10,
+              divisions: 9,
+              label: MediaQuery.orientationOf(context) == Orientation.landscape
+                  ? '横屏 ${settings.gridColumnsLandscape}'
+                  : '竖屏 ${settings.gridColumnsPortrait}',
               onChanged: settings.gridLayout
                   ? (v) {
-                      settings.gridColumns = v.round();
+                      if (MediaQuery.orientationOf(context) ==
+                          Orientation.landscape) {
+                        settings.gridColumnsLandscape = v.round();
+                      } else {
+                        settings.gridColumnsPortrait = v.round();
+                      }
                       state.saveSettings();
                     }
                   : null,
             ),
-            trailing: Text('${settings.gridColumns}'),
+            trailing: Text(
+              MediaQuery.orientationOf(context) == Orientation.landscape
+                  ? '横屏 ${settings.gridColumnsLandscape}'
+                  : '竖屏 ${settings.gridColumnsPortrait}',
+            ),
           ),
           ListTile(
             title: const Text('排序方式'),
@@ -124,6 +140,27 @@ class SettingsPage extends StatelessWidget {
           ),
           const Divider(),
           const SettingsReadAloudSection(),
+          const Divider(),
+          const _SectionTitle('脚本插件'),
+          ListTile(
+            leading: const Icon(Icons.extension_outlined),
+            title: const Text('脚本插件'),
+            subtitle: const Text('导入 Python 脚本：清洗 TXT / 书源下载，产出 EPUB 3'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PluginsPage()),
+            ),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.shield_outlined),
+            title: const Text('沙盒审计'),
+            subtitle: const Text('禁止脚本访问沙盒外的文件（建议开启）'),
+            value: state.settings.scriptSandboxAudit,
+            onChanged: (value) {
+              state.settings.scriptSandboxAudit = value;
+              state.saveSettings();
+            },
+          ),
           const Divider(),
           const _SectionTitle('数据与同步'),
           ListTile(

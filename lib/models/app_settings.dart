@@ -3,7 +3,9 @@ class AppSettings {
   /// 对应 kAppThemes 下标。
   int themeIndex;
   bool gridLayout;
-  int gridColumns;
+  /// 网格视图每行本数（竖屏默认 3，横屏默认 6，范围 1-10）。
+  int gridColumnsPortrait;
+  int gridColumnsLandscape;
   String sortMode;
   String tocRulePattern;
   bool autoBackup;
@@ -14,37 +16,51 @@ class AppSettings {
   /// 横屏左侧标签栏是否展开为图标 + 文字（默认只显示图标）。
   bool landscapeExpanded;
 
+  /// 脚本沙盒审计钩子（默认开启：禁止脚本访问沙盒外的文件）。
+  bool scriptSandboxAudit;
+
   AppSettings({
     this.themeIndex = 0,
     this.gridLayout = true,
-    this.gridColumns = 3,
+    this.gridColumnsPortrait = 3,
+    this.gridColumnsLandscape = 6,
     this.sortMode = 'recent',
     this.tocRulePattern = '',
     this.autoBackup = true,
     this.portraitLabels = false,
     this.landscapeExpanded = false,
+    this.scriptSandboxAudit = true,
   });
 
   Map<String, dynamic> toJson() => {
     'themeIndex': themeIndex,
     'gridLayout': gridLayout,
-    'gridColumns': gridColumns,
+    'gridColumnsPortrait': gridColumnsPortrait,
+    'gridColumnsLandscape': gridColumnsLandscape,
     'sortMode': sortMode,
     'tocRulePattern': tocRulePattern,
     'autoBackup': autoBackup,
     'portraitLabels': portraitLabels,
     'landscapeExpanded': landscapeExpanded,
+      'scriptSandboxAudit': scriptSandboxAudit,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
     themeIndex: (json['themeIndex'] as num?)?.toInt() ?? 0,
     gridLayout: json['gridLayout'] as bool? ?? true,
-    gridColumns: (json['gridColumns'] as num?)?.toInt() ?? 3,
+    gridColumnsPortrait:
+        (json['gridColumnsPortrait'] as num?)?.toInt() ??
+        (json['gridColumns'] as num?)?.toInt() ??
+        3,
+    gridColumnsLandscape:
+        (json['gridColumnsLandscape'] as num?)?.toInt() ??
+        ((json['gridColumns'] as num?)?.toInt() ?? 3) * 2,
     sortMode: json['sortMode'] as String? ?? 'recent',
     tocRulePattern: json['tocRulePattern'] as String? ?? '',
     autoBackup: json['autoBackup'] as bool? ?? true,
     portraitLabels: json['portraitLabels'] as bool? ?? false,
     landscapeExpanded: json['landscapeExpanded'] as bool? ?? false,
+      scriptSandboxAudit: json['scriptSandboxAudit'] as bool? ?? true,
   );
 }
 
