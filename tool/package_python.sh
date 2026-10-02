@@ -34,13 +34,17 @@ if [ ! -d "${APP_SRC}" ]; then
   exit 1
 fi
 
-mkdir -p "${STAGING}"
+STAGING_SITE_PACKAGES="${SERIOUS_PYTHON_SITE_PACKAGES:-${REPO_ROOT}/build/site-packages}"
+
+mkdir -p "${STAGING}" "${STAGING_SITE_PACKAGES}"
 export SERIOUS_PYTHON_APP="${STAGING}"
+export SERIOUS_PYTHON_SITE_PACKAGES="${STAGING_SITE_PACKAGES}"
 
 echo "平台：${PLATFORM}"
 echo "暂存目录：${SERIOUS_PYTHON_APP}"
 echo "依赖：${REQUIREMENTS[*]}"
-echo "（构建前请确保 SERIOUS_PYTHON_APP 指向同一路径）"
+echo "依赖目录：${SERIOUS_PYTHON_SITE_PACKAGES}"
+echo "（构建前请确保 SERIOUS_PYTHON_APP 与 SERIOUS_PYTHON_SITE_PACKAGES 指向同一路径）"
 
 args=()
 for requirement in "${REQUIREMENTS[@]}"; do
