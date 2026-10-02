@@ -69,8 +69,10 @@ class EpubBook:
         manifest, spine, nav_items, files = [], [], [], []
         if self._cover is not None:
             name, data, media = self._cover
+            # EPUB 3 的规范封面声明（同时保留 EPUB 2 的 <meta name="cover"> 兼容旧阅读器）
             manifest.append(
-                f'<item id="cover-image" href="images/{name}" media-type="{media}"/>'
+                f'<item id="cover-image" href="images/{name}" '
+                f'media-type="{media}" properties="cover-image"/>'
             )
             files.append((f"OEBPS/images/{name}", data))
 
