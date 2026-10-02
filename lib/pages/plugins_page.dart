@@ -53,7 +53,50 @@ class _PluginsPageState extends State<PluginsPage> {
     if (mounted) _toast('已导入：$name');
   }
 
+  /// 内置示例：让用户选一个（TXT 清洗脚本 / 本地测试书源）。
   Future<void> _importBuiltin() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('导入内置脚本'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop('clean'),
+            child: const ListTile(
+              leading: Icon(Icons.auto_fix_high_outlined),
+              title: Text('TXT 清洗转 EPUB'),
+              subtitle: Text('清洗文本、按章切分并生成 EPUB 3'),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop('source'),
+            child: const ListTile(
+              leading: Icon(Icons.cloud_outlined),
+              title: Text('本地测试书源（假数据）'),
+              subtitle: Text('不联网，用于验证搜索 / 详情 / 下载链路'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    if (choice == 'source') {
+      final source = await rootBundle.loadString(
+        'python/examples/fake_source.py',
+      );
+      if (!mounted) return;
+      final state = context.read<AppState>();
+      final script = await state.plugins.importSource(
+        source,
+        name: '内置：本地测试书源（假数据）',
+        task: PluginTask.source,
+        builtin: true,
+      );
+      await _describe(state, script);
+      await _reload();
+      if (mounted) _toast('已导入本地测试书源，可用 🔍 在线搜索');
+      return;
+    }
     final source = await rootBundle.loadString(
       'python/examples/txt_cleaner.py',
     );
