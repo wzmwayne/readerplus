@@ -18,10 +18,13 @@ STAGING="${SERIOUS_PYTHON_APP:-${REPO_ROOT}/build/python-app}"
 
 # 插件源码与预置依赖（脚本作者可直接 import）
 APP_SRC="${REPO_ROOT}/python/app"
+# 只放各端都有可用 wheel 的纯 Python 依赖：
+#   - epub-generator 要求 Python <3.14（内置运行时是 3.14），且会拖入 matplotlib 等重依赖
+#   - EbookLib 依赖 lxml（C 扩展，移动端 arm64 无 wheel）
+# EPUB 交由插件用标准库 zipfile 生成（见 python/examples/txt_cleaner.py）
 REQUIREMENTS=(
   requests
   charset-normalizer
-  epub-generator
 )
 
 if [ ! -d "${APP_SRC}" ]; then
