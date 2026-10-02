@@ -61,7 +61,9 @@ env:
   BUILD_TOOLS: '36.0.0'
   NDK_VERSION: '28.2.13676358'
   APPIMAGETOOL_VERSION: '1.9.1'
-  BASE_PACKAGES: git ca-certificates curl unzip xz-utils tar gzip zstd jq file mawk tzdata
+  BASE_PACKAGES: git ca-certificates curl unzip xz-utils tar gzip zstd jq file mawk tzdata python3 python3-pip python3-venv
+  # Python 运行时与插件依赖的暂存目录；打包脚本与平台构建共用同一路径
+  SERIOUS_PYTHON_APP: ${{ github.workspace }}/build/python-app
   # 与时区相关的输出（日志/日期）统一用上海时区
   TZ: Asia/Shanghai
 
@@ -158,6 +160,14 @@ jobs:
         with:
           cache-read-only: false
           gradle-home-cache-cleanup: true
+      - name: 缓存 Python 运行时
+        uses: actions/cache@v6.1.0
+        with:
+          path: build/python-app
+          key: python-app-Android-${{ hashFiles('tool/package_python.sh', 'pubspec.lock') }}
+      # 与本地同一份脚本：打包解释器与插件依赖（requests / charset-normalizer / epub-generator）
+      - name: 打包 Python 运行时（Android）
+        run: bash tool/package_python.sh Android
       - name: 构建 Debug APK（仅 arm64）
         run: |
           flutter config --no-analytics
@@ -225,6 +235,14 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
           restore-keys: |
             pub-${{ runner.os }}-
+      - name: 缓存 Python 运行时
+        uses: actions/cache@v6.1.0
+        with:
+          path: build/python-app
+          key: python-app-Linux-${{ hashFiles('tool/package_python.sh', 'pubspec.lock') }}
+      # 与本地同一份脚本：打包解释器与插件依赖（requests / charset-normalizer / epub-generator）
+      - name: 打包 Python 运行时（Linux）
+        run: bash tool/package_python.sh Linux
       - name: 构建 Debug（桌面）
         run: |
           flutter config --no-analytics
