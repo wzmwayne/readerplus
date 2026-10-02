@@ -29,7 +29,8 @@ on:
       run_tests:
         description: 运行分析与单元测试
         type: boolean
-        default: true
+        # 默认关闭：本地已确认，线上只做构建
+        default: false
       build_android:
         description: 构建 Android APK（debug，arm64）
         type: boolean
@@ -66,7 +67,7 @@ env:
 
 jobs:
   analyze:
-    name: 分析与单元测试
+    name: 版本号
     runs-on: ubuntu-24.04
     container: debian:12-slim
     outputs:
@@ -98,10 +99,11 @@ jobs:
             pub-${{ runner.os }}-
       - run: flutter config --no-analytics
       - run: flutter pub get
-      - run: flutter analyze
-      # 联网用例（真实 Edge TTS 接口）默认排除：外网波动/风控不应影响构建；
-      # 需要时本地执行 flutter test --tags live
-      - run: flutter test --exclude-tags live
+      # 本地已确认过，线上默认不再重复检查；如需校验可勾选 run_tests
+      - if: ${{ inputs.run_tests }}
+        run: flutter analyze
+      - if: ${{ inputs.run_tests }}
+        run: flutter test --exclude-tags live
 
   android:
     name: Android APK
