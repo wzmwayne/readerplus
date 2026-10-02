@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -14,6 +14,7 @@ import '../state/app_state.dart';
 import '../services/tts/read_aloud_controller.dart';
 import '../widgets/read_aloud_panel.dart';
 import 'page_turn_offsets.dart';
+import 'text_selection.dart';
 import 'tts_highlight.dart';
 import '../theme/app_theme.dart';
 import 'chapter_paginator.dart';
@@ -89,14 +90,19 @@ class _ReaderPageState extends State<ReaderPage>
   // 因此天然支持章节间连续滚动；用每章的 GlobalKey 跟踪当前位置。
   int _scrollAnchor = 0;
   final Map<int, GlobalKey> _scrollKeys = {};
+  final Map<String, GlobalKey> _paragraphKeys = {};
   final Map<int, List<String>> _paragraphCache = {};
   int _scrollParagraphIndex = 0;
-  int _scrollTargetChapter = -1;
-  int _scrollTargetParagraph = -1;
-  GlobalKey? _scrollTargetKey;
 
   ReadAloudController? _ttsInstance;
   bool _autoRead = false;
+
+  // 正文选择（自实现，不依赖系统选择）：段落序号 + 段内范围 + 操作条锚点
+  ParagraphSelection? _selection;
+  String _selectionText = '';
+  Offset _selectionAnchor = Offset.zero;
+  int _extendAnchor = 0;
+  ParagraphSelection? _selectionAtExtendStart;
 
   ReadAloudController get _tts {
     final existing = _ttsInstance;
@@ -106,8 +112,46 @@ class _ReaderPageState extends State<ReaderPage>
     controller
       ..voice = rs.ttsVoice
       ..rate = rs.ttsRateString;
+    // 切换朗读焦点（高亮句）时让视图跟随
+    controller.addListener(_followReadAloud);
     _ttsInstance = controller;
     return controller;
+  }
+
+  /// 朗读起点：屏幕最上方的那一句。
+  ({String text, int at}) _readSource() {
+    if (_rs.pageMode == PageMode.scroll) {
+      final paragraphs = _chapterParagraphs(_chapterIndex);
+      if (paragraphs.isEmpty) return (text: '', at: 0);
+      final from = _scrollParagraphIndex.clamp(0, paragraphs.length - 1);
+      return (text: paragraphs.sublist(from).join('\n'), at: 0);
+    }
+    return (text: _pagePlainText, at: 0);
+  }
+
+  /// 朗读焦点变化时滚动跟随（滚动模式才有意义）。
+  void _followReadAloud() {
+    if (!mounted || !_autoRead || _rs.pageMode != PageMode.scroll) return;
+    final segment = _ttsInstance?.currentSegment;
+    if (segment == null) return;
+    final paragraphs = _chapterParagraphs(_chapterIndex);
+    var offset = 0;
+    var index = 0;
+    for (var i = 0; i < paragraphs.length; i++) {
+      if (offset + paragraphs[i].length > segment.start) {
+        index = i;
+        break;
+      }
+      offset += paragraphs[i].length + 1;
+    }
+    final context = _paragraphKey(_chapterIndex, index)?.currentContext;
+    if (context == null) return;
+    Scrollable.ensureVisible(
+      context,
+      alignment: 0.12,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -141,6 +185,7 @@ class _ReaderPageState extends State<ReaderPage>
     final tts = _ttsInstance;
     if (tts != null) {
       tts.onPageFinished = null;
+      tts.removeListener(_followReadAloud);
       unawaited(tts.stop());
       if (widget.readAloud == null) tts.dispose();
     }
@@ -358,6 +403,7 @@ class _ReaderPageState extends State<ReaderPage>
     final target = _flatIndex + delta;
     if (target < 0 || target >= _flat.length) return;
     setState(() {
+      _selection = null;
       _flatIndex = target;
       final chapter = _flat[target].chapter;
       if (chapter != _chapterIndex) {
@@ -434,6 +480,10 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _handleTap(TapUpDetails details, double width) {
+    if (_selection != null) {
+      _clearSelection();
+      return;
+    }
     if (_menuVisible) {
       setState(() {
         _menuVisible = false;
@@ -534,17 +584,38 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Future<void> _startPageRead() async {
-    final text = _pagePlainText;
-    if (text.trim().isEmpty) return;
+    final source = _readSource();
+    if (source.text.trim().isEmpty) return;
     final tts = _tts;
     tts.onPageFinished = _onPageReadFinished;
-    await tts.start(text);
+    await tts.start(source.text, at: source.at);
     if (mounted) setState(() {});
   }
 
   /// 本页读完：立即续读下一页（朗读不需要翻页动画）。
   void _onPageReadFinished() {
     if (!mounted || !_autoRead) return;
+    // 滚动模式：读完当前章接着读下一章（并把视图带过去）
+    if (_rs.pageMode == PageMode.scroll) {
+      if (_chapterIndex + 1 >= _chapters.length) {
+        unawaited(_stopReadAloud());
+        return;
+      }
+      setState(() {
+        _chapterIndex += 1;
+        _scrollAnchor = _chapterIndex;
+        _scrollParagraphIndex = 0;
+        _pendingLine = null;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final context = _scrollKeys[_chapterIndex]?.currentContext;
+        if (context != null && mounted) {
+          Scrollable.ensureVisible(context, alignment: 0);
+        }
+      });
+      unawaited(_startPageRead());
+      return;
+    }
     if (_flatIndex + 1 >= _flat.length) {
       unawaited(_stopReadAloud());
       return;
@@ -594,24 +665,218 @@ class _ReaderPageState extends State<ReaderPage>
     return result;
   }
 
-  Widget _ttsText(
-    ({PageParagraph paragraph, int start}) entry,
-    TextStyle style,
-    TextStyle highlight,
-  ) {
-    final paragraph = entry.paragraph;
-    final segment = _ttsActiveSegment;
-    return HighlightedText(
-      text: paragraph.text,
+  /// 可选择的正文段落：长按选词、双击选句，全部自实现（不用系统选择）。
+  Widget _selectableParagraph({
+    required int index,
+    required int startOffset,
+    required String text,
+    required TextStyle style,
+    required TextStyle highlightStyle,
+    List<int>? readAloudRange,
+  }) {
+    final selection = _selection;
+    final extra = <({List<int> range, TextStyle style})>[
+      if (selection != null && selection.paragraph == index)
+        (
+          range: [selection.start, selection.end],
+          style: style.copyWith(
+            backgroundColor: const Color(0x663D5AFE),
+          ),
+        ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPressStart: (details) => _startSelection(
+          index: index,
+          startOffset: startOffset,
+          text: text,
+          style: style,
+          maxWidth: constraints.maxWidth,
+          local: details.localPosition,
+          global: details.globalPosition,
+          word: true,
+        ),
+        onLongPressMoveUpdate: (details) => _extendSelection(
+          text: text,
+          style: style,
+          maxWidth: constraints.maxWidth,
+          local: details.localPosition,
+          global: details.globalPosition,
+        ),
+        onDoubleTapDown: (details) => _startSelection(
+          index: index,
+          startOffset: startOffset,
+          text: text,
+          style: style,
+          maxWidth: constraints.maxWidth,
+          local: details.localPosition,
+          global: details.globalPosition,
+          word: false,
+        ),
+        child: HighlightedText(
+          text: text,
+          style: style,
+          highlightStyle: highlightStyle,
+          highlightRange: readAloudRange,
+          extraHighlights: extra,
+        ),
+      ),
+    );
+  }
+
+  void _startSelection({
+    required int index,
+    required int startOffset,
+    required String text,
+    required TextStyle style,
+    required double maxWidth,
+    required Offset local,
+    required Offset global,
+    required bool word,
+  }) {
+    final hit = charIndexAt(
+      text: text,
       style: style,
-      highlightStyle: highlight,
-      highlightRange: segment == null
-          ? null
-          : highlightRangeInParagraph(
-              entry.start,
-              paragraph.text.length,
-              segment,
+      maxWidth: maxWidth,
+      local: local,
+    );
+    final range = word ? wordRangeAt(text, hit) : sentenceRangeAt(text, hit);
+    setState(() {
+      _selectionText = text;
+      _selectionAnchor = global;
+      _selection = ParagraphSelection(
+        paragraph: index,
+        start: range[0],
+        end: range[1],
+      );
+      _extendAnchor = hit;
+      _selectionAtExtendStart = _selection;
+    });
+  }
+
+  /// 长按拖动：把选择扩展到当前手指所在字符。
+  void _extendSelection({
+    required String text,
+    required TextStyle style,
+    required double maxWidth,
+    required Offset local,
+    required Offset global,
+  }) {
+    final selection = _selection;
+    if (selection == null) return;
+    final hit = charIndexAt(
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      local: local,
+    );
+    setState(() {
+      _selectionAnchor = global;
+      // 以按下时的选择为锚：往左拖扩展起点，往右拖扩展终点
+      _selection = ParagraphSelection(
+        paragraph: _selectionAtExtendStart?.paragraph ?? selection.paragraph,
+        start: hit < _extendAnchor
+            ? hit
+            : (_selectionAtExtendStart?.start ?? selection.start),
+        end: hit < _extendAnchor
+            ? (_selectionAtExtendStart?.end ?? selection.end)
+            : hit,
+      );
+    });
+  }
+
+  void _clearSelection() {
+    if (_selection == null) return;
+    _selectionAtExtendStart = null;
+    setState(() => _selection = null);
+  }
+
+  Future<void> _copySelection() async {
+    final selection = _selection;
+    if (selection == null) return;
+    final text = selection.textOf(_selectionText);
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    _clearSelection();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已复制：${text.length > 20 ? '${text.substring(0, 20)}…' : text}'),
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
+
+  /// 从选中处开始朗读（作为「从本段听」）。
+  Future<void> _readFromSelection() async {
+    final selection = _selection;
+    if (selection == null) return;
+    final scrollMode = _rs.pageMode == PageMode.scroll;
+    final text = scrollMode
+        ? _chapterParagraphs(_chapterIndex).join('\n')
+        : _pagePlainText;
+    var offset = 0;
+    final paragraphs = scrollMode
+        ? _chapterParagraphs(_chapterIndex)
+        : (_current?.page.paragraphs.map((p) => p.text).toList() ?? const []);
+    for (var i = 0; i < selection.paragraph && i < paragraphs.length; i++) {
+      offset += paragraphs[i].length + 1;
+    }
+    final from = offset + selection.start;
+    final segments = splitSentenceSegments(text);
+    var at = 0;
+    for (var i = 0; i < segments.length; i++) {
+      if (segments[i].end > from) {
+        at = i;
+        break;
+      }
+    }
+    setState(() {
+      _autoRead = true;
+      _selection = null;
+      if (scrollMode) _scrollParagraphIndex = selection.paragraph;
+    });
+    final tts = _tts;
+    tts.onPageFinished = _onPageReadFinished;
+    await tts.start(text, at: at);
+    if (mounted) setState(() {});
+  }
+
+  /// 选择操作条（自实现，不用系统菜单）。
+  Widget _buildSelectionToolbar() {
+    final size = MediaQuery.sizeOf(context);
+    final anchor = _selectionAnchor;
+    final left =
+        (anchor.dx - 84).clamp(8.0, math.max(8.0, size.width - 176)).toDouble();
+    final top =
+        (anchor.dy - 52).clamp(8.0, math.max(8.0, size.height - 52)).toDouble();
+    return Positioned(
+      left: left,
+      top: top,
+      child: Material(
+        elevation: 6,
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.black.withValues(alpha: 0.86),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              onPressed: () => unawaited(_copySelection()),
+              child: const Text('复制'),
             ),
+            const SizedBox(width: 4),
+            TextButton(
+              onPressed: () => unawaited(_readFromSelection()),
+              child: const Text('从本段听'),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close, size: 16, color: Colors.white70),
+              onPressed: _clearSelection,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -623,17 +888,35 @@ class _ReaderPageState extends State<ReaderPage>
     final style = _textStyle(rs);
     // 橙色背景 + 视觉加粗；样式实现保证字形度量不变，分页结果始终成立
     final highlightStyle = readAloudHighlightStyle(style);
-    Widget buildParagraphs() => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (flat != null)
-          for (final entry in _paragraphRanges(flat))
+    Widget buildParagraphs() {
+      final entries = flat == null
+          ? const <({PageParagraph paragraph, int start})>[]
+          : _paragraphRanges(flat);
+      final segment = _ttsActiveSegment;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < entries.length; i++)
             Padding(
-              padding: EdgeInsets.only(bottom: entry.paragraph.gapAfter),
-              child: _ttsText(entry, style, highlightStyle),
+              padding: EdgeInsets.only(bottom: entries[i].paragraph.gapAfter),
+              child: _selectableParagraph(
+                index: i,
+                startOffset: entries[i].start,
+                text: entries[i].paragraph.text,
+                style: style,
+                highlightStyle: highlightStyle,
+                readAloudRange: segment == null
+                    ? null
+                    : highlightRangeInParagraph(
+                        entries[i].start,
+                        entries[i].paragraph.text.length,
+                        segment,
+                      ),
+              ),
             ),
-      ],
-    );
+        ],
+      );
+    }
     final tts = _ttsInstance;
     if (tts == null) return buildParagraphs();
     return ListenableBuilder(
@@ -726,6 +1009,7 @@ class _ReaderPageState extends State<ReaderPage>
                 ),
               _buildMenu(rs, state, isLandscape: isLandscape),
               if (_tocVisible) _buildToc(rs),
+              if (_selection != null) _buildSelectionToolbar(),
             ],
           );
         },
@@ -887,17 +1171,37 @@ class _ReaderPageState extends State<ReaderPage>
     setState(() {
       _scrollAnchor = chapter;
       _scrollParagraphIndex = target;
-      _scrollTargetChapter = chapter;
-      _scrollTargetParagraph = target;
-      _scrollTargetKey = GlobalKey();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final targetContext = _scrollTargetKey?.currentContext;
+      final targetContext = _paragraphKey(chapter, target)?.currentContext;
       if (targetContext != null && mounted) {
         Scrollable.ensureVisible(targetContext, alignment: 0);
       }
     });
   }
+
+  int _paragraphStartInChapter(int chapterIndex, int paragraphIndex) {
+    final paragraphs = _chapterParagraphs(chapterIndex);
+    var offset = 0;
+    for (var i = 0; i < paragraphIndex && i < paragraphs.length; i++) {
+      offset += paragraphs[i].length + 1;
+    }
+    return offset;
+  }
+
+  /// 滚动模式下当前朗读句在本段内的高亮范围。
+  List<int>? _scrollReadRange(int chapterIndex, int paragraphIndex) {
+    final segment = _ttsActiveSegment;
+    if (segment == null || chapterIndex != _chapterIndex) return null;
+    return highlightRangeInParagraph(
+      _paragraphStartInChapter(chapterIndex, paragraphIndex),
+      _chapterParagraphs(chapterIndex)[paragraphIndex].length,
+      segment,
+    );
+  }
+
+  GlobalKey? _paragraphKey(int chapterIndex, int paragraphIndex) =>
+      _paragraphKeys['$chapterIndex:$paragraphIndex'];
 
   Widget _chapterSection(ReaderSettings rs, int chapterIndex) {
     final key = _scrollKeys.putIfAbsent(chapterIndex, () => GlobalKey());
@@ -908,13 +1212,19 @@ class _ReaderPageState extends State<ReaderPage>
       children: [
         for (var i = 0; i < paragraphs.length; i++)
           Padding(
-            key: (_scrollTargetChapter == chapterIndex &&
-                    _scrollTargetParagraph == i)
-                ? _scrollTargetKey
-                : null,
+            key: _paragraphKeys.putIfAbsent(
+              '$chapterIndex:$i',
+              () => GlobalKey(),
+            ),
             padding: EdgeInsets.only(bottom: rs.paragraphSpacing),
-            child: Text('${rs.paragraphIndent}${paragraphs[i]}',
-                style: _textStyle(rs)),
+            child: _selectableParagraph(
+              index: i,
+              startOffset: _paragraphStartInChapter(chapterIndex, i),
+              text: '${rs.paragraphIndent}${paragraphs[i]}',
+              style: _textStyle(rs),
+              highlightStyle: readAloudHighlightStyle(_textStyle(rs)),
+              readAloudRange: _scrollReadRange(chapterIndex, i),
+            ),
           ),
       ],
     );

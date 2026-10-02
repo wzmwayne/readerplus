@@ -29,35 +29,59 @@ class HighlightedText extends StatelessWidget {
     super.key,
     required this.text,
     required this.style,
-    required this.highlightStyle,
+    this.highlightStyle,
     this.highlightRange,
+    this.extraHighlights = const [],
   });
 
   final String text;
   final TextStyle style;
-  final TextStyle highlightStyle;
+  final TextStyle? highlightStyle;
 
   /// 相对 [text] 的高亮区间 `[start, end)`；为空表示不高亮。
   final List<int>? highlightRange;
 
+  /// 额外高亮（例如正文选中区）；与 [highlightRange] 重叠时后者优先。
+  final List<({List<int> range, TextStyle style})> extraHighlights;
+
   @override
   Widget build(BuildContext context) {
-    final range = highlightRange;
-    if (range == null || range.length < 2 || range[1] <= range[0]) {
-      return Text(text, style: style);
+    final ranges = <({List<int> range, TextStyle style})>[
+      if (highlightRange != null && highlightRange!.length >= 2 &&
+          highlightStyle != null)
+        (range: highlightRange!, style: highlightStyle!),
+      ...extraHighlights,
+    ].where((e) => e.range[1] > e.range[0]).toList();
+
+    if (ranges.isEmpty) return Text(text, style: style);
+
+    // 按所有区间边界切段，重叠段取「后加入」的样式（选中优先于朗读高亮）
+    final boundaries = <int>{0, text.length};
+    for (final item in ranges) {
+      boundaries
+        ..add(item.range[0].clamp(0, text.length))
+        ..add(item.range[1].clamp(0, text.length));
     }
-    final from = range[0].clamp(0, text.length);
-    final to = range[1].clamp(from, text.length);
-    if (to <= from) return Text(text, style: style);
-    return Text.rich(
-      TextSpan(
-        style: style,
-        children: [
-          if (from > 0) TextSpan(text: text.substring(0, from)),
-          TextSpan(text: text.substring(from, to), style: highlightStyle),
-          if (to < text.length) TextSpan(text: text.substring(to)),
-        ],
-      ),
-    );
+    final points = boundaries.toList()..sort();
+
+    final spans = <InlineSpan>[];
+    for (var i = 0; i < points.length - 1; i++) {
+      final from = points[i];
+      final to = points[i + 1];
+      if (to <= from) continue;
+      TextStyle? segmentStyle;
+      for (final item in ranges) {
+        if (item.range[0] <= from && item.range[1] >= to) {
+          segmentStyle = item.style;
+        }
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(from, to),
+          style: segmentStyle,
+        ),
+      );
+    }
+    return Text.rich(TextSpan(style: style, children: spans));
   }
 }

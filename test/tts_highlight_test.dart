@@ -134,4 +134,30 @@ void main() {
       expect(find.byType(RichText), findsOneWidget);
     }
   });
+
+  testWidgets('同时支持朗读高亮与选中区，且选中优先', (tester) async {
+    const selected = Color(0x553D5AFE);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: HighlightedText(
+            text: '0123456789',
+            style: style,
+            highlightStyle: style.copyWith(backgroundColor: kReadAloudHighlight),
+            highlightRange: const [2, 6],
+            extraHighlights: [
+              (range: const [4, 8], style: style.copyWith(backgroundColor: selected)),
+            ],
+          ),
+        ),
+      ),
+    );
+    final spans = collect(tester.widget<RichText>(find.byType(RichText)).text);
+    String? textOf(Color color) => spans
+        .where((s) => s.style?.backgroundColor == color)
+        .map((s) => s.text ?? '')
+        .join();
+    expect(textOf(kReadAloudHighlight), '23');
+    expect(textOf(selected), '4567');
+  });
 }
