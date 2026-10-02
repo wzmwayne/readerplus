@@ -50,6 +50,14 @@ def _load_params(sandbox_root):
 def _install_audit_hook(sandbox_root):
     """可选审计钩子：阻止脚本读写沙盒外的路径（网络不受影响）。"""
     root = os.path.realpath(sandbox_root)
+    # 可信的运行时目录：解释器自身、内置库所在的应用目录、启动时的 sys.path 项
+    trusted = {
+        os.path.realpath(entry)
+        for entry in sys.path
+        if entry and os.path.isabs(entry) and os.path.isdir(entry)
+    }
+    trusted.add(os.path.realpath(os.path.dirname(os.path.abspath(__file__))))
+    trusted.add(os.path.realpath(os.getcwd()))
 
     def _resolve(path):
         try:
@@ -68,6 +76,10 @@ def _install_audit_hook(sandbox_root):
         # 允许解释器自身的库路径（否则 Python 无法导入标准库）
         for prefix in (sys.prefix, sys.base_prefix):
             if prefix and resolved.startswith(os.path.realpath(prefix)):
+                return True
+        # 允许内置库与运行时目录（插件需要 import readerplus_epub / requests 等）
+        for prefix in trusted:
+            if resolved == prefix or resolved.startswith(prefix + os.sep):
                 return True
         return resolved == root or resolved.startswith(root + os.sep)
 

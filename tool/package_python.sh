@@ -18,10 +18,12 @@ STAGING="${SERIOUS_PYTHON_APP:-${REPO_ROOT}/build/python-app}"
 
 # 插件源码与预置依赖（脚本作者可直接 import）
 APP_SRC="${REPO_ROOT}/python/app"
-# 只放各端都有可用 wheel 的纯 Python 依赖：
-#   - epub-generator 要求 Python <3.14（内置运行时是 3.14），且会拖入 matplotlib 等重依赖
-#   - EbookLib 依赖 lxml（C 扩展，移动端 arm64 无 wheel）
-# EPUB 交由插件用标准库 zipfile 生成（见 python/examples/txt_cleaner.py）
+# 全平台完全一致的依赖集合（插件作者在任意端看到的环境都相同）：
+#   - requests / charset-normalizer：纯 Python，各端都有 wheel
+#   - EPUB 生成用内置的 readerplus_epub（标准库实现），不依赖第三方
+# 实测过的第三方 EPUB 库都不满足"全平台一致"：
+#   EbookLib 依赖 lxml（Android 无 wheel）、epub-generator 要求 Python <3.14、
+#   sphinx/epubkit 等依赖 MarkupSafe 等 C 扩展（Android 无 wheel）
 REQUIREMENTS=(
   requests
   charset-normalizer

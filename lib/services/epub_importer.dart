@@ -94,6 +94,8 @@ class EpubImporter {
     for (final idref in spine) {
       final item = manifest[idref];
       if (item == null || item.path.isEmpty) continue;
+      // 导航文档可能也在 spine 里（如 EbookLib 生成的书），它是目录而非正文
+      if (item.properties.split(' ').contains('nav')) continue;
       final raw = _readText(files, item.path, allowMissing: true);
       if (raw == null) continue;
       final document = html_parser.parse(raw);
