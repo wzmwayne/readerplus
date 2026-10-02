@@ -3,7 +3,6 @@ import 'dart:io';
 import '../models/book.dart';
 import 'epub_importer.dart';
 import 'storage.dart';
-import 'text_cleaner.dart';
 import 'txt_importer.dart';
 
 /// 书架数据访问：书籍索引、目录、正文的读写与导入。
@@ -73,15 +72,15 @@ class LibraryRepository {
       storage.writeText(_contentPath(bookId), content);
 
   /// 按扩展名分派导入：`.epub` 走 EPUB 解析，其余按 TXT 处理。
-  Future<Book> importBook(File file, {List<CleanRule>? cleanRules}) async {
+  Future<Book> importBook(File file) async {
     final path = file.path.toLowerCase();
     if (path.endsWith('.epub')) return importEpub(file);
-    return importTxt(file, cleanRules: cleanRules);
+    return importTxt(file);
   }
 
   /// 导入本地 TXT（含格式清理）。
-  Future<Book> importTxt(File file, {List<CleanRule>? cleanRules}) async {
-    final parsed = await TxtImporter.parseFile(file, cleanRules: cleanRules);
+  Future<Book> importTxt(File file) async {
+    final parsed = await TxtImporter.parseFile(file);
     final meta = TxtImporter.guessMeta(file, parsed.content);
     final book = Book(
       id: Book.newId(),

@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../services/plugin/plugin_sandbox.dart';
 import '../state/app_state.dart';
 import 'plugin_run_page.dart';
+import 'source_search_page.dart';
 
 /// 插件（Python 脚本）管理页：导入、启用、运行。
 class PluginsPage extends StatefulWidget {
@@ -44,7 +46,9 @@ class _PluginsPageState extends State<PluginsPage> {
     final source = await File(file.path).readAsString();
     final name = file.name.replaceAll(RegExp(r'\.py$'), '');
     if (!mounted) return;
-    await context.read<AppState>().plugins.importSource(source, name: name);
+    final state = context.read<AppState>();
+    final script = await state.plugins.importSource(source, name: name);
+    await _describe(state, script);
     await _reload();
     if (mounted) _toast('已导入：$name');
   }
@@ -54,20 +58,18 @@ class _PluginsPageState extends State<PluginsPage> {
       'python/examples/txt_cleaner.py',
     );
     if (!mounted) return;
-    await context.read<AppState>().plugins.importSource(
+    final state = context.read<AppState>();
+    final script = await state.plugins.importSource(
       source,
       name: '内置示例：TXT 清洗转 EPUB',
       params: const {
         'input_file': 'raw.txt',
         'output_file': 'book.epub',
         'chapter_pattern': r'^第[一二三四五六七八九十百千0-9]+章.*$',
-        'clean_rules': [
-          [r'[\u200b\ufeff]', ''],
-          [r'(?m)^\s*广告.*$', ''],
-        ],
       },
       builtin: true,
     );
+    await _describe(state, script);
     await _reload();
     if (mounted) _toast('已导入内置示例');
   }
@@ -81,6 +83,31 @@ class _PluginsPageState extends State<PluginsPage> {
   Future<void> _delete(PluginScript script) async {
     await context.read<AppState>().plugins.delete(script.id);
     await _reload();
+  }
+
+  /// 读取脚本内的 SCRIPT 声明，回填类型/能力（需要已打包 Python 运行时）。
+  Future<void> _describe(AppState state, PluginScript script) async {
+    try {
+      final temp = await getTemporaryDirectory();
+      final declaration = await state.pluginRunner.describe(
+        scriptSource: script.source,
+        jobsRoot: Directory('${temp.path}/plugin_jobs'),
+        audit: state.settings.scriptSandboxAudit,
+      );
+      if (declaration == null) return;
+      final kind = (declaration['kind'] ?? '').toString();
+      script
+        ..declaredId = declaration['id']?.toString()
+        ..version = declaration['version']?.toString()
+        ..capabilities =
+            ((declaration['capabilities'] as List?)?.cast<String>() ?? const [])
+                .toSet();
+      if (kind == 'source') script.task = PluginTask.source;
+      if (kind == 'clean') script.task = PluginTask.clean;
+      await state.plugins.save(script);
+    } catch (_) {
+      // 描述失败不影响导入；用户可稍后在插件页重新触发
+    }
   }
 
   Future<void> _run(PluginScript script) async {
@@ -121,21 +148,16 @@ class _PluginsPageState extends State<PluginsPage> {
             icon: const Icon(Icons.file_open_outlined),
             onPressed: _importFile,
           ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'builtin') _importBuiltin();
-              if (value == 'doc') _showDoc();
-              if (value == 'audit') _toggleAudit();
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'builtin', child: Text('导入内置示例')),
-              const PopupMenuItem(value: 'doc', child: Text('查看插件开发指南')),
-              CheckedPopupMenuItem(
-                value: 'audit',
-                checked: context.watch<AppState>().settings.scriptSandboxAudit,
-                child: const Text('沙盒审计（禁止访问沙盒外文件）'),
-              ),
-            ],
+          // 用显式按钮而不是弹出菜单：菜单在本页曾出现无法打开的问题
+          IconButton(
+            tooltip: '导入内置示例',
+            icon: const Icon(Icons.auto_awesome_outlined),
+            onPressed: _importBuiltin,
+          ),
+          IconButton(
+            tooltip: '插件开发指南',
+            icon: const Icon(Icons.menu_book_outlined),
+            onPressed: _showDoc,
           ),
         ],
       ),
@@ -178,6 +200,19 @@ class _PluginsPageState extends State<PluginsPage> {
                           value: script.enabled,
                           onChanged: (value) => _toggle(script, value),
                         ),
+                        if (script.task == PluginTask.source &&
+                            (script.capabilities.isEmpty ||
+                                script.capabilities.contains('search')))
+                          IconButton(
+                            tooltip: '在线搜索',
+                            icon: const Icon(Icons.search),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    SourceSearchPage(script: script),
+                              ),
+                            ),
+                          ),
                         IconButton(
                           tooltip: '运行',
                           icon: const Icon(Icons.play_arrow),
@@ -194,20 +229,6 @@ class _PluginsPageState extends State<PluginsPage> {
               ],
             ),
     );
-  }
-
-  Future<void> _toggleAudit() async {
-    final state = context.read<AppState>();
-    setState(
-      () => state.settings.scriptSandboxAudit =
-          !state.settings.scriptSandboxAudit,
-    );
-    await state.saveSettings();
-    if (mounted) {
-      _toast(
-        state.settings.scriptSandboxAudit ? '已开启沙盒审计' : '已关闭沙盒审计（信任脚本）',
-      );
-    }
   }
 
   Future<void> _showDoc() async {

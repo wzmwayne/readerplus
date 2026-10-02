@@ -116,30 +116,6 @@ class SettingsPage extends StatelessWidget {
             ),
           ),
           const Divider(),
-          const _SectionTitle('TXT 格式清理'),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text(
-              '导入 TXT 时按下列规则依次清理正文（规则形式参考 Legado 的替换净化）',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ),
-          for (final rule in state.cleanRules)
-            SwitchListTile(
-              dense: true,
-              value: rule.enabled,
-              onChanged: (v) {
-                rule.enabled = v;
-                state.saveCleanRules();
-              },
-              title: Text(rule.name),
-              subtitle: rule.note.isEmpty ? null : Text(rule.note),
-            ),
-          ListTile(
-            leading: const Icon(Icons.restore),
-            title: const Text('恢复默认清理规则'),
-            onTap: state.resetCleanRules,
-          ),
           const Divider(),
           const SettingsReadAloudSection(),
           const Divider(),
@@ -203,7 +179,7 @@ class SettingsPage extends StatelessWidget {
           const ListTile(
             title: Text('数据格式'),
             subtitle: Text(
-              '自定义 JSON（library / settings / reader_settings / webdav / cleaning_rules）'
+              '自定义 JSON（library / settings / reader_settings / webdav / plugins）'
               '＋ zip 备份包，保存在应用私有目录',
             ),
           ),

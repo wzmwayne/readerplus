@@ -45,6 +45,13 @@ class PluginScript {
   bool builtin;
   String source;
 
+  /// 脚本内 SCRIPT 声明里的标识与版本（describe 后填充）。
+  String? declaredId;
+  String? version;
+
+  /// 能力列表：clean / search / detail / download（由声明决定）。
+  Set<String> capabilities = {};
+
   /// 运行参数（写进 params.json，脚本自行容错）。
   Map<String, dynamic> params;
 
@@ -56,6 +63,9 @@ class PluginScript {
     'enabled': enabled,
     'builtin': builtin,
     'params': params,
+    'declaredId': declaredId,
+    'version': version,
+    'capabilities': capabilities.toList(),
   };
 
   static PluginScript fromJson(Map<String, dynamic> json, String source) {
@@ -69,7 +79,12 @@ class PluginScript {
         builtin: json['builtin'] as bool? ?? false,
         params: (json['params'] as Map?)?.cast<String, dynamic>() ?? const {},
         source: source,
-      );
+      )
+        ..declaredId = json['declaredId'] as String?
+        ..version = json['version'] as String?
+        ..capabilities =
+            ((json['capabilities'] as List?)?.cast<String>() ?? const [])
+                .toSet();
   }
 }
 
@@ -149,12 +164,16 @@ class PluginSandbox {
       logFile.existsSync() ? logFile.readAsString() : '';
 
   /// 解析 manifest.json；缺失或损坏时按失败处理。
-  Future<({bool ok, String traceback, List<String> outputs})> readManifest() async {
+  Future<
+    ({bool ok, String traceback, List<String> outputs, Map<String, dynamic>? script})
+  >
+  readManifest() async {
     if (!manifestFile.existsSync()) {
       return (
         ok: false,
         traceback: '脚本未写出 manifest.json',
         outputs: const <String>[],
+        script: null,
       );
     }
     try {
@@ -167,13 +186,26 @@ class PluginSandbox {
         ok: status == 'ok',
         traceback: decoded['traceback'] as String? ?? '',
         outputs: outputs,
+        script: (decoded['script'] as Map?)?.cast<String, dynamic>(),
       );
     } catch (error) {
       return (
         ok: false,
         traceback: 'manifest.json 解析失败：$error',
         outputs: const <String>[],
+        script: null,
       );
+    }
+  }
+
+  /// 书源脚本的 search / detail 结果（output/result.json）。
+  Future<Map<String, dynamic>?> readResultJson() async {
+    final file = File('${output.path}/result.json');
+    if (!file.existsSync()) return null;
+    try {
+      return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
     }
   }
 

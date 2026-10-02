@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:fast_gbk/fast_gbk.dart';
 
 import '../models/book.dart';
-import 'text_cleaner.dart';
 
 /// 本地 TXT 导入：识别编码、切分章节、写入自定义存储目录。
 class TxtImporter {
@@ -19,25 +18,20 @@ class TxtImporter {
   );
 
   /// 读取文件并按规则切分。返回正文与章节列表。
-  /// [cleanRules] 非空时先做格式清理，再切分章节。
+
   static Future<({String content, List<Chapter> chapters})> parseFile(
     File file, {
     RegExp? tocRule,
-    List<CleanRule>? cleanRules,
   }) async {
     final bytes = await file.readAsBytes();
-    return parseBytes(bytes, tocRule: tocRule, cleanRules: cleanRules);
+    return parseBytes(bytes, tocRule: tocRule);
   }
 
   static ({String content, List<Chapter> chapters}) parseBytes(
     List<int> bytes, {
     RegExp? tocRule,
-    List<CleanRule>? cleanRules,
   }) {
     var content = decodeBytes(bytes);
-    if (cleanRules != null && cleanRules.isNotEmpty) {
-      content = TextCleaner.apply(content, cleanRules);
-    }
     return splitChapters(content, tocRule: tocRule);
   }
 

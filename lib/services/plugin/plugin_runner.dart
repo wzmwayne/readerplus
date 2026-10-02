@@ -69,6 +69,8 @@ class PluginRunner {
     Map<String, List<int>> inputs = const {},
     Duration timeout = const Duration(minutes: 10),
     bool keepSandboxOnError = true,
+    /// 成功时也保留沙盒（调用方读完产物后自行清理）。
+    bool keepSandbox = false,
   }) async {
     final sandbox = await PluginSandbox.create(jobsRoot);
     _sandbox = sandbox;
@@ -103,12 +105,39 @@ class PluginRunner {
       sandboxPath: sandbox.root.path,
       log: log,
     );
-    await sandbox.dispose(keepForDebug: !ok && keepSandboxOnError);
+    await sandbox.dispose(
+      keepForDebug: keepSandbox || (!ok && keepSandboxOnError),
+    );
     _sandbox = null;
     return result;
   }
 
   void cancel() => _runtime.cancel();
+
+  /// 读取脚本内的 SCRIPT 声明（不执行脚本主流程）。
+  Future<Map<String, dynamic>?> describe({
+    required String scriptSource,
+    required Directory jobsRoot,
+    required bool audit,
+  }) async {
+    final sandbox = await PluginSandbox.create(jobsRoot);
+    try {
+      await sandbox.writeParams({'task': 'describe'});
+      await sandbox.writeScript(scriptSource);
+      await _runtime.runSandbox(sandbox.root.path, audit: audit);
+      final manifest = await sandbox.readManifest();
+      if (!manifest.ok) {
+        debugPrint('[plugin] describe 失败：${manifest.traceback}');
+        return null;
+      }
+      return manifest.script;
+    } catch (error) {
+      debugPrint('[plugin] describe 异常：$error');
+      return null;
+    } finally {
+      await sandbox.dispose();
+    }
+  }
 
   void _startTailing(PluginSandbox sandbox) {
     _logTimer?.cancel();

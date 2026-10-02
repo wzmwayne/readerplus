@@ -16,11 +16,15 @@ class PluginRunPage extends StatefulWidget {
     required this.script,
     this.inputFile,
     this.audit = true,
+    this.extraParams = const {},
   });
 
   final PluginScript script;
   final File? inputFile;
   final bool audit;
+
+  /// 额外参数（例如书源下载的 task / book_id），会覆盖脚本默认参数。
+  final Map<String, dynamic> extraParams;
 
   @override
   State<PluginRunPage> createState() => _PluginRunPageState();
@@ -42,8 +46,16 @@ class _PluginRunPageState extends State<PluginRunPage> {
   @override
   void dispose() {
     unawaited(_subscription?.cancel());
+    // 清理本次运行保留的沙盒（产物已导入或用户已离开）
+    final directory = _sandboxToCleanup;
+    if (directory != null) {
+      final dir = Directory(directory);
+      if (dir.existsSync()) unawaited(dir.delete(recursive: true));
+    }
     super.dispose();
   }
+
+  String? _sandboxToCleanup;
 
   Future<void> _run() async {
     final state = context.read<AppState>();
@@ -68,6 +80,7 @@ class _PluginRunPageState extends State<PluginRunPage> {
     final params = <String, dynamic>{
       'task': widget.script.task.id,
       ...widget.script.params,
+      ...widget.extraParams,
     };
     if (widget.inputFile != null) {
       final name =
@@ -83,11 +96,14 @@ class _PluginRunPageState extends State<PluginRunPage> {
       audit: widget.audit,
       params: params,
       inputs: inputs,
+      // 成功也保留沙盒：产物在 output/ 下，导入后再清理（否则导入时会找不到文件）
+      keepSandbox: true,
     );
     if (!mounted) return;
     setState(() {
       _running = false;
       _result = result;
+      _sandboxToCleanup = result.sandboxPath;
       if (result.traceback.isNotEmpty) _log.writeln(result.traceback);
     });
   }

@@ -21,6 +21,14 @@ import re
 
 from readerplus_epub import EpubBook
 
+SCRIPT = {
+    "kind": "clean",
+    "id": "txt-cleaner",
+    "name": "TXT 清洗转 EPUB",
+    "version": "1.0",
+    "capabilities": ["clean"],
+}
+
 
 def load_params():
     with open("params.json", encoding="utf-8") as handle:
@@ -91,4 +99,5 @@ def main():
     print(f"[clean] 已写出 {output}")
 
 
-main()
+if __name__ == "__main__":
+    main()

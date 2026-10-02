@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 
 import '../models/book.dart';
 import '../reader/reader_page.dart';
+import '../services/plugin/plugin_sandbox.dart';
 import '../state/app_state.dart';
+import 'plugin_run_page.dart';
 import '../widgets/book_cover.dart';
 
 /// 书架：网格 / 列表两种布局，长按书籍弹出操作菜单。
@@ -31,7 +33,33 @@ class _ShelfPageState extends State<ShelfPage> {
     try {
       final file = await openFile(acceptedTypeGroups: const [_bookTypeGroup]);
       if (file == null) return;
-      await state.importBook(File(file.path));
+      final picked = File(file.path);
+      // TXT 交给内置脚本清洗转 EPUB；EPUB 直接导入
+      if (picked.path.toLowerCase().endsWith('.txt')) {
+        final scripts = await state.plugins.load();
+        final builtin = scripts
+            .where(
+              (script) =>
+                  script.builtin &&
+                  script.enabled &&
+                  script.task == PluginTask.clean,
+            )
+            .toList();
+        if (builtin.isNotEmpty) {
+          if (!mounted) return;
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => PluginRunPage(
+                script: builtin.first,
+                inputFile: picked,
+                audit: state.settings.scriptSandboxAudit,
+              ),
+            ),
+          );
+          return;
+        }
+      }
+      await state.importBook(picked);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导入失败：$e')));

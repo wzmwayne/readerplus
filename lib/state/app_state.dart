@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../models/app_settings.dart';
 import '../models/book.dart';
@@ -11,7 +12,6 @@ import '../services/plugin/plugin_repository.dart';
 import '../services/plugin/plugin_runner.dart';
 import '../services/storage.dart';
 import '../services/sync_service.dart';
-import '../services/text_cleaner.dart';
 
 /// 全局状态：书架、设置、同步。
 class AppState extends ChangeNotifier {
@@ -27,9 +27,6 @@ class AppState extends ChangeNotifier {
   AppSettings settings = AppSettings();
   ReaderSettings readerSettings = ReaderSettings();
   WebDavConfig webdav = WebDavConfig();
-
-  /// TXT 导入时的格式清理规则（内置规则 + 用户自定义）。
-  List<CleanRule> cleanRules = TextCleaner.defaultRules();
 
   bool ready = false;
   bool busy = false;
@@ -59,47 +56,33 @@ class AppState extends ChangeNotifier {
     }
     final webdavJson = await storage.readJson('webdav.json');
     if (webdavJson != null) webdav = WebDavConfig.fromJson(webdavJson);
-    final rulesJson = await storage.readJson('cleaning_rules.json');
-    if (rulesJson != null) {
-      cleanRules = _mergeCleanRules(rulesJson);
-    } else {
-      await saveCleanRules();
-    }
+    await _ensureBuiltinPlugin();
 
     ready = true;
     notifyListeners();
   }
 
-  /// 用内置规则为准合并已存配置：保留内置规则及其启停状态，并追加用户自定义规则。
-  List<CleanRule> _mergeCleanRules(Map<String, dynamic> json) {
-    final stored = ((json['rules'] as List?) ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(CleanRule.fromJson)
-        .toList();
-    final byName = {for (final rule in stored) rule.name: rule};
-    final merged = <CleanRule>[];
-    for (final rule in TextCleaner.defaultRules()) {
-      final saved = byName.remove(rule.name);
-      if (saved != null) rule.enabled = saved.enabled;
-      merged.add(rule);
+  /// 首次运行导入内置脚本（TXT 清洗转 EPUB）并启用；已有则跳过。
+  Future<void> _ensureBuiltinPlugin() async {
+    try {
+      final scripts = await plugins.load();
+      if (scripts.any((script) => script.builtin)) return;
+      final source = await rootBundle.loadString(
+        'python/examples/txt_cleaner.py',
+      );
+      await plugins.importSource(
+        source,
+        name: '内置：TXT 清洗转 EPUB',
+        builtin: true,
+        params: const {
+          'input_file': 'raw.txt',
+          'output_file': 'book.epub',
+          'chapter_pattern': r'^第[一二三四五六七八九十百千0-9]+章.*$',
+        },
+      );
+    } catch (error) {
+      debugPrint('[plugin] 导入内置脚本失败：$error');
     }
-    merged.addAll(byName.values.where((r) => !r.builtin));
-    return merged;
-  }
-
-  Future<void> saveCleanRules() async {
-    await storage.writeJson('cleaning_rules.json', {
-      'format': 'wzmwayne.reader.cleaning_rules',
-      'version': 1,
-      'rules': cleanRules.map((r) => r.toJson()).toList(),
-    });
-    notifyListeners();
-  }
-
-  Future<void> resetCleanRules() async {
-    cleanRules = TextCleaner.defaultRules();
-    await saveCleanRules();
-    _notify('清理规则已恢复默认');
   }
 
   void _notify(String? text) {
@@ -132,7 +115,7 @@ class AppState extends ChangeNotifier {
     try {
       busy = true;
       notifyListeners();
-      final book = await library.importBook(file, cleanRules: cleanRules);
+      final book = await library.importBook(file);
       _notify('已导入《${book.title}》，共 ${book.chapterCount} 章');
       return book;
     } catch (e) {

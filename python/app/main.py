@@ -12,6 +12,7 @@
   5. 把结果写入 manifest.json。
 """
 
+import ast
 import json
 import os
 import sys
@@ -96,6 +97,24 @@ def _install_audit_hook(sandbox_root):
     sys.addaudithook(_hook)
 
 
+def _read_declaration(source):
+    """从脚本源码里静态取出 SCRIPT / PLUGIN 声明（只接受字面量，不执行代码）。"""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id in ("SCRIPT", "PLUGIN"):
+                try:
+                    return ast.literal_eval(node.value)
+                except (ValueError, SyntaxError):
+                    return None
+    return None
+
+
 def _write_manifest(sandbox_root, payload):
     path = os.path.join(sandbox_root, "manifest.json")
     with open(path, "w", encoding="utf-8") as handle:
@@ -132,9 +151,25 @@ def main():
         _write_manifest(sandbox_root, {"status": MANIFEST_ERROR, "traceback": "缺少 user_script.py"})
         return 1
 
+    task = str(params.get("task", ""))
     try:
         with open(script_path, encoding="utf-8") as handle:
             source = handle.read()
+
+        if task == "describe":
+            # 静态解析脚本内的 SCRIPT 声明：不执行任何用户代码
+            declaration = _read_declaration(source)
+            if declaration is None:
+                raise ValueError("脚本缺少 SCRIPT 声明（见插件开发指南）")
+            if not isinstance(declaration, dict):
+                raise ValueError("SCRIPT 声明必须是字典")
+            print(f"[host] 脚本声明：{json.dumps(declaration, ensure_ascii=False)}")
+            _write_manifest(
+                sandbox_root,
+                {"status": MANIFEST_OK, "script": declaration},
+            )
+            return 0
+
         namespace = {"__name__": "__main__", "__file__": script_path}
         exec(compile(source, script_path, "exec"), namespace)
     except SystemExit as exit_error:  # 允许脚本用 sys.exit 提前结束
