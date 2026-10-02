@@ -95,6 +95,32 @@ List<int> sentenceRangeAt(String text, int index) {
   return [start, end];
 }
 
+TextPainter _layout(String text, TextStyle style, double maxWidth) =>
+    TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: null,
+    )..layout(maxWidth: maxWidth <= 0 ? double.infinity : maxWidth);
+
+/// 选区两端 caret 的位置（相对段落左上角）与行高，用于绘制拖动手柄。
+({Offset start, Offset end, double lineHeight})? selectionCarets({
+  required String text,
+  required TextStyle style,
+  required double maxWidth,
+  required int start,
+  required int end,
+}) {
+  if (text.isEmpty) return null;
+  final painter = _layout(text, style, maxWidth);
+  final from = start.clamp(0, text.length);
+  final to = end.clamp(0, text.length);
+  return (
+    start: painter.getOffsetForCaret(TextPosition(offset: from), Rect.zero),
+    end: painter.getOffsetForCaret(TextPosition(offset: to), Rect.zero),
+    lineHeight: painter.preferredLineHeight,
+  );
+}
+
 /// 用与渲染一致的排版参数做命中测试，返回字符下标。
 int charIndexAt({
   required String text,
@@ -103,11 +129,7 @@ int charIndexAt({
   required Offset local,
 }) {
   if (text.isEmpty) return 0;
-  final painter = TextPainter(
-    text: TextSpan(text: text, style: style),
-    textDirection: TextDirection.ltr,
-    maxLines: null,
-  )..layout(maxWidth: maxWidth <= 0 ? double.infinity : maxWidth);
+  final painter = _layout(text, style, maxWidth);
   final position = painter.getPositionForOffset(local);
   return position.offset.clamp(0, text.length);
 }
@@ -121,11 +143,7 @@ Rect? selectionRect({
   required int end,
 }) {
   if (text.isEmpty || end <= start) return null;
-  final painter = TextPainter(
-    text: TextSpan(text: text, style: style),
-    textDirection: TextDirection.ltr,
-    maxLines: null,
-  )..layout(maxWidth: maxWidth <= 0 ? double.infinity : maxWidth);
+  final painter = _layout(text, style, maxWidth);
   final boxes = painter.getBoxesForSelection(
     TextSelection(
       baseOffset: start.clamp(0, text.length),

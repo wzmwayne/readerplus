@@ -6,11 +6,15 @@ class PageParagraph {
   PageParagraph({
     required this.text,
     required this.paragraphStart,
+    this.isTitle = false,
     this.gapAfter = 0,
   });
 
   final String text;
   final bool paragraphStart;
+
+  /// 该片段是否属于章节标题（标题用更大更粗的样式渲染与排版）。
+  final bool isTitle;
   double gapAfter;
 }
 
@@ -57,6 +61,9 @@ class ChapterPaginator {
     double paragraphSpacing = 0,
     bool applyIndent = true,
     TextScaler textScaler = TextScaler.noScaling,
+    /// 章节标题样式；给出时前 [titleParagraphs] 段按此样式排版并标记 isTitle。
+    TextStyle? titleStyle,
+    int titleParagraphs = 1,
   }) {
     if (text.isEmpty || maxWidth <= 0 || maxHeight <= 0) {
       return [
@@ -112,10 +119,13 @@ class ChapterPaginator {
         paragraphOffset += raw.length + 1;
         continue;
       }
-      final content = applyIndent ? '$indent$trimmed' : trimmed;
+      final isTitle = titleStyle != null && p < titleParagraphs;
+      // 标题不缩进，且用标题样式参与排版（渲染与分页必须一致，否则会溢出）
+      final content = (!isTitle && applyIndent) ? '$indent$trimmed' : trimmed;
+      final paraStyle = isTitle ? titleStyle : style;
 
       final painter = TextPainter(
-        text: TextSpan(text: content, style: style),
+        text: TextSpan(text: content, style: paraStyle),
         textDirection: TextDirection.ltr,
         maxLines: null,
         textScaler: textScaler,
@@ -172,6 +182,7 @@ class ChapterPaginator {
               chunkRanges.last.end,
             ),
             paragraphStart: chunkRanges.first.start == 0,
+            isTitle: isTitle,
           ),
         );
         used += chunkHeight;
@@ -182,12 +193,13 @@ class ChapterPaginator {
 
       final moreParagraphs =
           paragraphs.skip(p + 1).any((e) => e.trim().isNotEmpty);
-      if (moreParagraphs && paragraphSpacing > 0) {
-        if (used + paragraphSpacing > maxHeight) {
+      final spacing = isTitle ? paragraphSpacing * 1.6 : paragraphSpacing;
+      if (moreParagraphs && spacing > 0) {
+        if (used + spacing > maxHeight) {
           flush();
         } else if (current.isNotEmpty) {
-          current.last.gapAfter = paragraphSpacing;
-          used += paragraphSpacing;
+          current.last.gapAfter = spacing;
+          used += spacing;
         }
       }
       paragraphOffset += raw.length + 1;

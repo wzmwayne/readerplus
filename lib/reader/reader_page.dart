@@ -121,10 +121,10 @@ class _ReaderPageState extends State<ReaderPage>
   /// 朗读起点：屏幕最上方的那一句。
   ({String text, int at}) _readSource() {
     if (_rs.pageMode == PageMode.scroll) {
-      final paragraphs = _chapterParagraphs(_chapterIndex);
-      if (paragraphs.isEmpty) return (text: '', at: 0);
-      final from = _scrollParagraphIndex.clamp(0, paragraphs.length - 1);
-      return (text: paragraphs.sublist(from).join('\n'), at: 0);
+      final rendered = _renderedChapterParagraphs(_rs);
+      if (rendered.isEmpty) return (text: '', at: 0);
+      final from = _scrollParagraphIndex.clamp(0, rendered.length - 1);
+      return (text: rendered.sublist(from).join('\n'), at: 0);
     }
     return (text: _pagePlainText, at: 0);
   }
@@ -216,6 +216,12 @@ class _ReaderPageState extends State<ReaderPage>
   _FlatPage? get _current =>
       _flat.isEmpty || _flatIndex >= _flat.length ? null : _flat[_flatIndex];
 
+  /// 章节标题样式：比正文更大更粗。
+  TextStyle _titleStyle(ReaderSettings rs) => _textStyle(rs).copyWith(
+    fontSize: rs.textSize * 1.3,
+    fontWeight: FontWeight.bold,
+  );
+
   TextStyle _textStyle(ReaderSettings rs) => TextStyle(
     fontSize: rs.textSize,
     height: (rs.textSize + rs.lineSpacing) / rs.textSize,
@@ -302,6 +308,7 @@ class _ReaderPageState extends State<ReaderPage>
       indent: settings.paragraphIndent,
       paragraphSpacing: settings.paragraphSpacing,
       textScaler: textScaler,
+      titleStyle: _titleStyle(settings),
     );
     _pageCache[index] = pages;
     return pages;
@@ -714,15 +721,112 @@ class _ReaderPageState extends State<ReaderPage>
           global: details.globalPosition,
           word: false,
         ),
-        child: HighlightedText(
-          text: text,
-          style: style,
-          highlightStyle: highlightStyle,
-          highlightRange: readAloudRange,
-          extraHighlights: extra,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            HighlightedText(
+              text: text,
+              style: style,
+              highlightStyle: highlightStyle,
+              highlightRange: readAloudRange,
+              extraHighlights: extra,
+            ),
+            // 选中后显示两端手柄，可直接拖动调整选区
+            if (selection != null && selection.paragraph == index)
+              ..._selectionHandles(
+                selection: selection,
+                text: text,
+                style: style,
+                maxWidth: constraints.maxWidth,
+                boxContext: context,
+              ),
+          ],
         ),
       ),
     );
+  }
+
+  /// 选区两端的手柄；拖动即调整选区边界。
+  List<Widget> _selectionHandles({
+    required ParagraphSelection selection,
+    required String text,
+    required TextStyle style,
+    required double maxWidth,
+    required BuildContext boxContext,
+  }) {
+    final carets = selectionCarets(
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      start: selection.start,
+      end: selection.end,
+    );
+    if (carets == null) return const [];
+
+    Widget handle({required bool isStart, required Offset caret}) => Positioned(
+      left: caret.dx - 9,
+      top: caret.dy + carets.lineHeight - 7,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: (details) => _dragSelectionHandle(
+          isStart: isStart,
+          text: text,
+          style: style,
+          maxWidth: maxWidth,
+          global: details.globalPosition,
+          boxContext: boxContext,
+        ),
+        child: Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            color: const Color(0xFF3D5AFE),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+        ),
+      ),
+    );
+
+    return [
+      handle(isStart: true, caret: carets.start),
+      handle(isStart: false, caret: carets.end),
+    ];
+  }
+
+  void _dragSelectionHandle({
+    required bool isStart,
+    required String text,
+    required TextStyle style,
+    required double maxWidth,
+    required Offset global,
+    required BuildContext boxContext,
+  }) {
+    final selection = _selection;
+    if (selection == null) return;
+    final box = boxContext.findRenderObject();
+    if (box is! RenderBox || !box.attached) return;
+    final local = box.globalToLocal(global);
+    final hit = charIndexAt(
+      text: text,
+      style: style,
+      maxWidth: maxWidth,
+      local: local,
+    );
+    setState(() {
+      _selectionAnchor = global;
+      _selection = isStart
+          ? ParagraphSelection(
+              paragraph: selection.paragraph,
+              start: hit < selection.end ? hit : selection.end,
+              end: selection.end,
+            )
+          : ParagraphSelection(
+              paragraph: selection.paragraph,
+              start: selection.start,
+              end: hit > selection.start ? hit : selection.start,
+            );
+    });
   }
 
   void _startSelection({
@@ -813,11 +917,11 @@ class _ReaderPageState extends State<ReaderPage>
     if (selection == null) return;
     final scrollMode = _rs.pageMode == PageMode.scroll;
     final text = scrollMode
-        ? _chapterParagraphs(_chapterIndex).join('\n')
+        ? _renderedChapterParagraphs(_rs).join('\n')
         : _pagePlainText;
     var offset = 0;
     final paragraphs = scrollMode
-        ? _chapterParagraphs(_chapterIndex)
+        ? _renderedChapterParagraphs(_rs)
         : (_current?.page.paragraphs.map((p) => p.text).toList() ?? const []);
     for (var i = 0; i < selection.paragraph && i < paragraphs.length; i++) {
       offset += paragraphs[i].length + 1;
@@ -886,33 +990,39 @@ class _ReaderPageState extends State<ReaderPage>
   /// widget 实例，高亮不会随句子推进而刷新。
   Widget _paragraphArea(ReaderSettings rs, _FlatPage? flat) {
     final style = _textStyle(rs);
-    // 橙色背景 + 视觉加粗；样式实现保证字形度量不变，分页结果始终成立
-    final highlightStyle = readAloudHighlightStyle(style);
     Widget buildParagraphs() {
       final entries = flat == null
           ? const <({PageParagraph paragraph, int start})>[]
           : _paragraphRanges(flat);
       final segment = _ttsActiveSegment;
+      final titleStyle = _titleStyle(rs);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (var i = 0; i < entries.length; i++)
-            Padding(
-              padding: EdgeInsets.only(bottom: entries[i].paragraph.gapAfter),
-              child: _selectableParagraph(
-                index: i,
-                startOffset: entries[i].start,
-                text: entries[i].paragraph.text,
-                style: style,
-                highlightStyle: highlightStyle,
-                readAloudRange: segment == null
-                    ? null
-                    : highlightRangeInParagraph(
-                        entries[i].start,
-                        entries[i].paragraph.text.length,
-                        segment,
-                      ),
-              ),
+            Builder(
+              builder: (context) {
+                final entry = entries[i];
+                final paraStyle =
+                    entry.paragraph.isTitle ? titleStyle : style;
+                return Padding(
+                  padding: EdgeInsets.only(bottom: entry.paragraph.gapAfter),
+                  child: _selectableParagraph(
+                    index: i,
+                    startOffset: entry.start,
+                    text: entry.paragraph.text,
+                    style: paraStyle,
+                    highlightStyle: readAloudHighlightStyle(paraStyle),
+                    readAloudRange: segment == null
+                        ? null
+                        : highlightRangeInParagraph(
+                            entry.start,
+                            entry.paragraph.text.length,
+                            segment,
+                          ),
+                  ),
+                );
+              },
             ),
         ],
       );
@@ -1180,6 +1290,15 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
+  /// 与滚动模式渲染一致的段落文本（首段标题不缩进，其余加缩进）。
+  List<String> _renderedChapterParagraphs(ReaderSettings rs) {
+    final paragraphs = _chapterParagraphs(_chapterIndex);
+    return [
+      for (var i = 0; i < paragraphs.length; i++)
+        i == 0 ? paragraphs[i] : '${rs.paragraphIndent}${paragraphs[i]}',
+    ];
+  }
+
   int _paragraphStartInChapter(int chapterIndex, int paragraphIndex) {
     final paragraphs = _chapterParagraphs(chapterIndex);
     var offset = 0;
@@ -1190,12 +1309,17 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   /// 滚动模式下当前朗读句在本段内的高亮范围。
-  List<int>? _scrollReadRange(int chapterIndex, int paragraphIndex) {
+  List<int>? _scrollReadRange(
+    int chapterIndex,
+    int paragraphIndex,
+    int indentLength,
+  ) {
     final segment = _ttsActiveSegment;
     if (segment == null || chapterIndex != _chapterIndex) return null;
+    final paragraph = _chapterParagraphs(chapterIndex)[paragraphIndex];
     return highlightRangeInParagraph(
-      _paragraphStartInChapter(chapterIndex, paragraphIndex),
-      _chapterParagraphs(chapterIndex)[paragraphIndex].length,
+      _paragraphStartInChapter(chapterIndex, paragraphIndex) + indentLength,
+      paragraph.length,
       segment,
     );
   }
@@ -1211,20 +1335,29 @@ class _ReaderPageState extends State<ReaderPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < paragraphs.length; i++)
-          Padding(
-            key: _paragraphKeys.putIfAbsent(
-              '$chapterIndex:$i',
-              () => GlobalKey(),
-            ),
-            padding: EdgeInsets.only(bottom: rs.paragraphSpacing),
-            child: _selectableParagraph(
-              index: i,
-              startOffset: _paragraphStartInChapter(chapterIndex, i),
-              text: '${rs.paragraphIndent}${paragraphs[i]}',
-              style: _textStyle(rs),
-              highlightStyle: readAloudHighlightStyle(_textStyle(rs)),
-              readAloudRange: _scrollReadRange(chapterIndex, i),
-            ),
+          Builder(
+            builder: (context) {
+              final isTitle = i == 0;
+              final paraStyle =
+                  isTitle ? _titleStyle(rs) : _textStyle(rs);
+              final indent = isTitle ? '' : rs.paragraphIndent;
+              return Padding(
+                key: _paragraphKeys.putIfAbsent(
+                  '$chapterIndex:$i',
+                  () => GlobalKey(),
+                ),
+                padding: EdgeInsets.only(bottom: rs.paragraphSpacing),
+                child: _selectableParagraph(
+                  index: i,
+                  startOffset:
+                      _paragraphStartInChapter(chapterIndex, i) + indent.length,
+                  text: '$indent${paragraphs[i]}',
+                  style: paraStyle,
+                  highlightStyle: readAloudHighlightStyle(paraStyle),
+                  readAloudRange: _scrollReadRange(chapterIndex, i, indent.length),
+                ),
+              );
+            },
           ),
       ],
     );

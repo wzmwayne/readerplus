@@ -76,6 +76,29 @@ void main() {
       expect(endIndex, lessThanOrEqualTo(text.length));
     });
 
+
+    test('caret 位置用于绘制拖动手柄', () {
+      final carets = selectionCarets(
+        text: '第一句。第二句。',
+        style: style,
+        maxWidth: 300,
+        start: 4,
+        end: 8,
+      );
+      expect(carets, isNotNull);
+      expect(carets!.lineHeight, greaterThan(0));
+      expect(carets.end.dx, greaterThan(carets.start.dx));
+      expect(
+        selectionCarets(
+          text: '',
+          style: style,
+          maxWidth: 300,
+          start: 0,
+          end: 9,
+        ),
+        isNull,
+      );
+    });
     test('选区矩形覆盖选中字符', () {
       const text = '第一句。第二句。';
       final rect = selectionRect(

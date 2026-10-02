@@ -135,4 +135,57 @@ void main() {
       }
     });
   });
+
+  group('章节标题样式', () {
+    const body = TextStyle(fontSize: 18);
+    final title = body.copyWith(fontSize: 24, fontWeight: FontWeight.bold);
+    const text = '第一章 夜叩门\n夜色像一层薄薄的墨，慢慢洇开在窗棂上。\n'
+        '他放下手中的书，听见巷子尽头传来更夫敲梆子的声音。';
+
+    test('首段按标题样式排版并标记 isTitle', () {
+      final pages = ChapterPaginator.paginate(
+        text: text,
+        style: body,
+        titleStyle: title,
+        maxWidth: 320,
+        maxHeight: 600,
+        indent: '　　',
+        paragraphSpacing: 6,
+      );
+      final first = pages.first.paragraphs.first;
+      expect(first.isTitle, isTrue);
+      expect(first.text, '第一章 夜叩门', reason: '标题不缩进');
+      expect(
+        pages.first.paragraphs.skip(1).every((p) => !p.isTitle),
+        isTrue,
+      );
+    });
+
+    test('标题更大更粗时，各页仍不超出可用高度', () {
+      final pages = ChapterPaginator.paginate(
+        text: text * 12,
+        style: body,
+        titleStyle: title,
+        maxWidth: 320,
+        maxHeight: 420,
+        indent: '　　',
+        paragraphSpacing: 6,
+      );
+      for (final page in pages) {
+        var used = 0.0;
+        for (final paragraph in page.paragraphs) {
+          final painter = TextPainter(
+            text: TextSpan(
+              text: paragraph.text,
+              style: paragraph.isTitle ? title : body,
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout(maxWidth: 320);
+          used += painter.height + paragraph.gapAfter;
+          painter.dispose();
+        }
+        expect(used, lessThanOrEqualTo(420.5), reason: '每页都必须放得下');
+      }
+    });
+  });
 }
