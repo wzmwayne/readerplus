@@ -186,7 +186,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
             ),
             Expanded(
               child: Slider(
-                value: rs.ttsRatePercent.toDouble(),
+                value: rs.ttsRatePercent.clamp(-50, 100).toDouble(),
                 min: -50,
                 max: 100,
                 divisions: 15,

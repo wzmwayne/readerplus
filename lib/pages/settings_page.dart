@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_info.dart';
+import '../models/app_settings.dart';
 import '../state/app_state.dart';
 import 'plugins_page.dart';
 import 'settings_read_aloud_section.dart';
@@ -72,9 +73,10 @@ class SettingsPage extends StatelessWidget {
               value: (MediaQuery.orientationOf(context) == Orientation.landscape
                       ? settings.gridColumnsLandscape
                       : settings.gridColumnsPortrait)
+                  .clamp(kShelfColumnsMin, kShelfColumnsMax)
                   .toDouble(),
-              min: 1,
-              max: 10,
+              min: kShelfColumnsMin.toDouble(),
+              max: kShelfColumnsMax.toDouble(),
               divisions: 9,
               label: MediaQuery.orientationOf(context) == Orientation.landscape
                   ? '横屏 ${settings.gridColumnsLandscape}'

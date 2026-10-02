@@ -48,13 +48,18 @@ class AppSettings {
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
     themeIndex: (json['themeIndex'] as num?)?.toInt() ?? 0,
     gridLayout: json['gridLayout'] as bool? ?? true,
-    gridColumnsPortrait:
-        (json['gridColumnsPortrait'] as num?)?.toInt() ??
-        (json['gridColumns'] as num?)?.toInt() ??
-        3,
-    gridColumnsLandscape:
-        (json['gridColumnsLandscape'] as num?)?.toInt() ??
-        ((json['gridColumns'] as num?)?.toInt() ?? 3) * 2,
+    // 归一化到 1..10：历史配置里可能出现超范围值（旧版迁移曾把它翻倍），
+    // 直接交给 Slider 会触发断言崩溃
+    gridColumnsPortrait: _clampColumns(
+      (json['gridColumnsPortrait'] as num?)?.toInt() ??
+          (json['gridColumns'] as num?)?.toInt() ??
+          3,
+    ),
+    gridColumnsLandscape: _clampColumns(
+      (json['gridColumnsLandscape'] as num?)?.toInt() ??
+          (json['gridColumns'] as num?)?.toInt() ??
+          6,
+    ),
     sortMode: json['sortMode'] as String? ?? 'recent',
     tocRulePattern: json['tocRulePattern'] as String? ?? '',
     autoBackup: json['autoBackup'] as bool? ?? true,
@@ -98,3 +103,10 @@ class WebDavConfig {
     enabled: json['enabled'] as bool? ?? false,
   );
 }
+
+/// 网格列数合法范围。
+const int kShelfColumnsMin = 1;
+const int kShelfColumnsMax = 10;
+
+int _clampColumns(int value) =>
+    value.clamp(kShelfColumnsMin, kShelfColumnsMax);
