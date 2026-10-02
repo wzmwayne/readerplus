@@ -188,7 +188,12 @@ jobs:
             --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}
       - name: 构建 Release APK（多架构）
         if: ${{ inputs.build_release }}
-        run: flutter build apk --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}
+        run: |
+          for attempt in 1 2 3; do
+            flutter build apk --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }} && break
+            echo "第 $attempt 次构建失败，10 秒后重试…"
+            sleep 10
+          done
       - name: 生成构建摘要
         run: |
           set +e
