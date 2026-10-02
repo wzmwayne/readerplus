@@ -183,9 +183,14 @@ jobs:
           flutter config --no-analytics
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
           flutter pub get
-          flutter build apk --debug --target-platform android-arm64 \
-            --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} \
-            --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}
+          # 插件的运行时压缩包下载偶发失败，失败即重试
+          for attempt in 1 2 3; do
+            flutter build apk --debug --target-platform android-arm64 \
+              --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} \
+              --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }} && break
+            echo "第 $attempt 次构建失败，10 秒后重试…"
+            sleep 10
+          done
       - name: 构建 Release APK（多架构）
         if: ${{ inputs.build_release }}
         run: |
