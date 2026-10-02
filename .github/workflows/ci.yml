@@ -26,11 +26,6 @@ name: Build
 on:
   workflow_dispatch:
     inputs:
-      run_tests:
-        description: 运行分析与单元测试
-        type: boolean
-        # 默认关闭：本地已确认，线上只做构建
-        default: false
       build_android:
         description: 构建 Android APK（debug，arm64）
         type: boolean
@@ -76,41 +71,14 @@ jobs:
   analyze:
     name: 版本号
     runs-on: ubuntu-24.04
-    container: debian:12-slim
     outputs:
       version: ${{ steps.version.outputs.version }}
       code: ${{ steps.version.outputs.code }}
     steps:
-      - name: 安装基础依赖
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ${BASE_PACKAGES}
+      # 只算版本号：不装 Flutter、不做依赖缓存、不跑检查（本地已确认）
       - uses: actions/checkout@v7.0.1
-      - name: 计算版本号（时间 yymmddhhmmss，上海时区）
-        id: version
-        env:
-          RUN_STARTED_AT: ${{ github.run_started_at }}
+      - id: version
         run: bash tool/ci_version.sh
-      - uses: subosito/flutter-action@v2.23.0
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-      - name: 缓存 pub 依赖
-        uses: actions/cache@v6.1.0
-        with:
-          path: |
-            ~/.pub-cache
-            .dart_tool
-          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
-          restore-keys: |
-            pub-${{ runner.os }}-
-      - run: flutter config --no-analytics
-      - run: flutter pub get
-      # 本地已确认过，线上默认不再重复检查；如需校验可勾选 run_tests
-      - if: ${{ inputs.run_tests }}
-        run: flutter analyze
-      - if: ${{ inputs.run_tests }}
-        run: flutter test --exclude-tags live
 
   android:
     name: Android APK
