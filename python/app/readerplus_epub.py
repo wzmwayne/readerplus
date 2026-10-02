@@ -18,6 +18,7 @@ epub-generator 要求 Python <3.14，因此这里用标准库提供等价的写�
 容器 / OPF / 导航文档自动生成，章节顺序即写入顺序。
 """
 
+import datetime
 import html
 import os
 import uuid
@@ -116,7 +117,9 @@ class EpubBook:
             f"    <dc:title>{html.escape(self.title)}</dc:title>\n"
             f"    <dc:creator>{html.escape(self.author)}</dc:creator>\n"
             f"    <dc:language>{html.escape(self.language)}</dc:language>\n"
-            "    <meta property=\"dcterms:modified\">1970-01-01T00:00:00Z</meta>\n"
+            "    <meta property=\"dcterms:modified\">"
+            f'{datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}'
+            "</meta>\n"
             f"    {cover_meta}\n"
             "  </metadata>\n"
             "  <manifest>\n    " + "\n    ".join(manifest) + "\n  </manifest>\n"

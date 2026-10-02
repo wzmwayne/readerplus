@@ -66,6 +66,9 @@ env:
   # （Android 的 Gradle 只认这两个环境变量，缺一即报 "not set"）
   SERIOUS_PYTHON_APP: ${{ github.workspace }}/build/python-app
   SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/site-packages
+  # 运行时压缩包（每个 ABI 30~100MB，来自 objects.githubusercontent.com）的持久缓存目录，
+  # 插件据此发条件请求（ETag），避免每次构建都重下导致失败
+  FLET_CACHE_DIR: ${{ github.workspace }}/build/flet-cache
   # 与时区相关的输出（日志/日期）统一用上海时区
   TZ: Asia/Shanghai
 
@@ -168,6 +171,11 @@ jobs:
           path: build/python-app
           key: python-app-Android-${{ hashFiles('tool/package_python.sh', 'pubspec.lock') }}
       # 与本地同一份脚本：打包解释器与插件依赖（requests / charset-normalizer / epub-generator）
+      - name: 缓存 Python 运行时压缩包
+        uses: actions/cache@v6.1.0
+        with:
+          path: build/flet-cache
+          key: flet-dist-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-v1
       - name: 打包 Python 运行时（Android）
         run: bash tool/package_python.sh Android
       - name: 构建 Debug APK（仅 arm64）
@@ -243,6 +251,11 @@ jobs:
           path: build/python-app
           key: python-app-Linux-${{ hashFiles('tool/package_python.sh', 'pubspec.lock') }}
       # 与本地同一份脚本：打包解释器与插件依赖（requests / charset-normalizer / epub-generator）
+      - name: 缓存 Python 运行时压缩包
+        uses: actions/cache@v6.1.0
+        with:
+          path: build/flet-cache
+          key: flet-dist-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-v1
       - name: 打包 Python 运行时（Linux）
         run: bash tool/package_python.sh Linux
       - name: 构建 Debug（桌面）
