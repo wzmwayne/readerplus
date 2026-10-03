@@ -110,7 +110,7 @@ class HetuScriptEngine {
         'error': '',
       });
     } on HTError catch (error) {
-      send.send({'ok': false, 'error': '${error.message ?? error}'});
+      send.send({'ok': false, 'error': error.message});
     } catch (error, stack) {
       send.send({'ok': false, 'error': '$error\n$stack'});
     } finally {
