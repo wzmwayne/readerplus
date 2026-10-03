@@ -1,4 +1,7 @@
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../app_info.dart';
@@ -50,7 +53,23 @@ class _DeveloperPageState extends State<DeveloperPage> {
             title: Text('日志为单个文件、始终追加；位置可用环境变量 READERPLUS_LOG_DIR 覆盖'),
           ),
           const Divider(),
-          const ListTile(dense: true, title: Text('实时日志（最近 400 行）')),
+          ListTile(
+            dense: true,
+            title: Text(
+              _showLive
+                  ? '实时日志（本次运行，内存中 ${lines.length} 行）'
+                  : '日志文件（全部：历史 + 本次，共 $_fileLines 行）',
+            ),
+            trailing: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('文件')),
+                ButtonSegment(value: true, label: Text('实时')),
+              ],
+              selected: {_showLive},
+              onSelectionChanged: (value) =>
+                  setState(() => _showLive = value.first),
+            ),
+          ),
           Container(
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(10),
@@ -59,16 +78,23 @@ class _DeveloperPageState extends State<DeveloperPage> {
               color: const Color(0xFF101418),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: SelectableText(
-              lines.length > 400
-                  ? lines.sublist(lines.length - 400).join('\n')
-                  : lines.join('\n'),
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 11,
-                color: Color(0xFFD7E2EA),
-              ),
-            ),
+            child: _loading && !_showLive
+                ? const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: CircularProgressIndicator(),
+                  )
+                : SelectableText(
+                    _showLive
+                        ? (lines.length > 400
+                              ? lines.sublist(lines.length - 400).join('\n')
+                              : lines.join('\n'))
+                        : (_fileContent ?? ''),
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: Color(0xFFD7E2EA),
+                    ),
+                  ),
           ),
         ],
       ),
