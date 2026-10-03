@@ -238,7 +238,13 @@ class PluginRunner {
     try {
       // sync:false 下 runSandbox 只等到"线程已创建"就返回，因此不能立刻读结果：
       // 必须轮询 output/manifest.json（脚本结束才会写出），期间保持日志尾随。
-      await _runtime.runSandbox(sandbox.root.path, audit: audit);
+      try {
+        // 对桥接调用本身也保留硬超时：运行时挂死时不能把整个流程一起拖住
+        await _runtime.runSandbox(sandbox.root.path, audit: audit).timeout(timeout);
+      } on TimeoutException {
+        _runtime.cancel();
+        failure = '执行超时（${timeout.inMilliseconds}ms 内未返回，已取消）';
+      }
 
       // 1) 先等"Python 真的起来了"：入口一启动就会写日志文件（main.py 的 tee）。
       //    等待上限取 min(8s, 调用方超时)，避免短超时任务被固定 8 秒拖住。
@@ -254,7 +260,9 @@ class PluginRunner {
       }
       final started =
           sandbox.logFile.existsSync() || sandbox.manifestFile.existsSync();
-      if (!started) {
+      if (failure != null) {
+        // 桥接已超时，跳过后续等待
+      } else if (!started) {
         _runtime.cancel();
         failure = '执行超时（${bootWait.inMilliseconds}ms 内未开始产出，已取消）';
       } else {
