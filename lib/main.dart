@@ -20,8 +20,12 @@ Future<void> main() async {
   installCrashHandlers(appNavigatorKey);
   // 先把设置读出来再渲染第一帧：否则首帧会用默认主题，随后才切到用户选择的主题，
   // 表现为开屏时一闪而过的「默认主题」。
-  // 诊断探针：一次安装即可判定解释器是否真的启动（默认关闭）
-  await RuntimeProbe.runIfEnabled();
+  // 诊断探针（默认关闭）：首帧之后异步执行，绝不阻塞界面
+  if (RuntimeProbe.enabled) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      RuntimeProbe.runIfEnabled();
+    });
+  }
   final state = AppState();
   await state.init();
   if (kDebugMode) {

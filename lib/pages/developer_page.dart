@@ -115,6 +115,15 @@ class _DeveloperPageState extends State<DeveloperPage> {
             leading: const Icon(Icons.science_outlined),
             title: const Text('运行时探针日志'),
             subtitle: const Text('判定嵌入式解释器是否真的启动（probe.log）'),
+            trailing: TextButton(
+              onPressed: () async {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('探针已开始（约 1–2 分钟）…')),
+                );
+                await RuntimeProbe.runManually();
+              },
+              child: const Text('运行'),
+            ),
             onTap: () async {
               final text = await RuntimeProbe.read();
               if (!context.mounted) return;
