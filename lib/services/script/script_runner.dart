@@ -47,6 +47,7 @@ class ScriptRunner {
     Map<String, List<int>> inputs = const {},
     Directory? outputDir,
     Map<String, String> params = const {},
+    String? ruleJson,
   }) async {
     final started = DateTime.now();
     final receive = ReceivePort();
@@ -88,6 +89,7 @@ class ScriptRunner {
         'send': receive.sendPort,
         'job': <String, Object?>{
           'source': source,
+          'rule': ruleJson,
           'inputs': inputs,
           'outputDir': outputDir?.path,
           'params': params,

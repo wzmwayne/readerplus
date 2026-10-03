@@ -1,18 +1,20 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
+
+import 'host_http.dart';
 
 import '../app_log.dart';
 import 'rule_source.dart';
 
 /// 规则引擎：纯 Dart 执行声明式书源（跨端一致、无原生层、可硬超时）。
 class RuleEngine {
-  RuleEngine({http.Client? client}) : _client = client ?? http.Client();
+  RuleEngine({HostHttp? http}) : _http = http ?? HostHttp();
 
-  final http.Client _client;
+  /// 与脚本插件共用同一套宿主 HTTP（同一条网络栈，含高自由度能力）。
+  final HostHttp _http;
 
-  void dispose() => _client.close();
+  void dispose() {}
 
   /// 展开模板：{{query}} / {{page}} / {{id}} 等。
   String _template(String template, Map<String, String> values) {
@@ -30,14 +32,13 @@ class RuleEngine {
       ...request.headers,
     };
     AppLog.info('source', '规则请求：${request.method} $url');
-    final response = request.method == 'POST'
-        ? await _client.post(
-            Uri.parse(url),
-            headers: headers,
-            body: _template(request.body, values),
-          )
-        : await _client.get(Uri.parse(url), headers: headers);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+    final response = await _http.request(
+      url: url,
+      method: request.method,
+      headers: headers.map((key, value) => MapEntry(key, [value])),
+      body: request.body.isEmpty ? null : _template(request.body, values),
+    );
+    if (!response.ok) {
       throw StateError('HTTP ${response.statusCode}：$url');
     }
     // 编码：优先规则指定，其次响应头 charset，最后按内容探测
@@ -46,7 +47,7 @@ class RuleEngine {
     if (declared != 'auto' && declared.isNotEmpty) {
       return _decode(bytes, declared);
     }
-    final contentType = response.headers['content-type'] ?? '';
+    final contentType = response.header('content-type');
     final charset = RegExp(r'charset=([\w-]+)')
         .firstMatch(contentType)
         ?.group(1);
