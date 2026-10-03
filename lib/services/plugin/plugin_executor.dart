@@ -76,8 +76,12 @@ class PluginExecutor {
     HetuScriptEngine.isolateEntry(job, send);
   }
 
-  Future<PluginJobResult> run(PluginJob job) async {
-    final runner = ScriptRunner(entry: isolateEntry);
+  Future<PluginJobResult> run(
+    PluginJob job, {
+    /// 实时日志回调（界面边跑边显示，不显示进度条）。
+    void Function(String message)? onLog,
+  }) async {
+    final runner = ScriptRunner(entry: isolateEntry, onLog: onLog);
     final run = await runner.run(
       job.rule ?? job.source,
       timeout: job.timeout,
