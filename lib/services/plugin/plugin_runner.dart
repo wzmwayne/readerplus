@@ -47,11 +47,11 @@ class SeriousPythonRuntime implements PluginRuntime {
         '解包目录 ${app.path}：入口${hasEntry ? '存在' : '缺失'}、'
         '目录存在=${app.existsSync()}',
       );
-      if (!hasEntry && paths.flet!.existsSync()) {
-        AppLog.error('plugin', '解包目录不完整，清理后由运行时重新解包');
-        try {
-          paths.flet!.deleteSync(recursive: true);
-        } catch (_) {}
+      if (!hasEntry) {
+        // 全新安装时这里本来就还没解包（prepareApp 在 run() 之后才执行），
+        // 千万不能删除 <support>/flet —— 它是插件的 PYTHONHOME，
+        // 在解释器可能仍在初始化时删除它正是原生 abort 的根源。
+        AppLog.info('plugin', '解包目录尚未就绪（首次运行属正常，交由运行时自行解包）');
       }
     }
     try {
@@ -114,6 +114,8 @@ class SeriousPythonRuntime implements PluginRuntime {
       if (paths.heartbeat != null) paths.heartbeat!,
       if (paths.app != null) File('${paths.app!.path}/host_boot.txt'),
       if (paths.flet != null) File('${paths.flet!.path}/data/host_boot.txt'),
+      if (paths.app != null)
+        File('${paths.app!.parent.parent.path}/data/host_boot.txt'),
       File('$sandboxPath/host_boot.txt'),
     ];
     for (final file in candidates) {
@@ -234,9 +236,39 @@ class PluginRunner {
 
     String? failure;
     try {
-      await _runtime
-          .runSandbox(sandbox.root.path, audit: audit)
-          .timeout(timeout);
+      // sync:false 下 runSandbox 只等到"线程已创建"就返回，因此不能立刻读结果：
+      // 必须轮询 output/manifest.json（脚本结束才会写出），期间保持日志尾随。
+      await _runtime.runSandbox(sandbox.root.path, audit: audit);
+
+      // 1) 先等"Python 真的起来了"：入口一启动就会写日志文件（main.py 的 tee）。
+      //    等待上限取 min(8s, 调用方超时)，避免短超时任务被固定 8 秒拖住。
+      final bootWait = timeout < const Duration(seconds: 8)
+          ? timeout
+          : const Duration(seconds: 8);
+      final bootDeadline = DateTime.now().add(bootWait);
+      while (DateTime.now().isBefore(bootDeadline)) {
+        if (sandbox.logFile.existsSync() || sandbox.manifestFile.existsSync()) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+      final started =
+          sandbox.logFile.existsSync() || sandbox.manifestFile.existsSync();
+      if (!started) {
+        _runtime.cancel();
+        failure = '执行超时（${bootWait.inMilliseconds}ms 内未开始产出，已取消）';
+      } else {
+        // 2) 再等脚本写出结果
+        final deadline = DateTime.now().add(timeout);
+        while (DateTime.now().isBefore(deadline)) {
+          if (sandbox.manifestFile.existsSync()) break;
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+        if (!sandbox.manifestFile.existsSync()) {
+          _runtime.cancel();
+          failure = '执行超时（脚本 ${timeout.inMinutes} 分钟内未写出结果）';
+        }
+      }
     } on TimeoutException {
       _runtime.cancel();
       failure = '执行超时';
@@ -295,11 +327,18 @@ class PluginRunner {
       'describe 开始：脚本 ${scriptSource.length} 字符、审计=$audit、'
       '工作目录=${jobsRoot.path}',
     );
+    var manifestOk = false;
     final sandbox = await PluginSandbox.create(jobsRoot);
     try {
       await sandbox.writeParams({'task': 'describe'});
       await sandbox.writeScript(scriptSource);
       await _runtime.runSandbox(sandbox.root.path, audit: audit);
+      // 同上：等到脚本真正写出结果（最多 60 秒），否则保留沙盒便于排查
+      final deadline = DateTime.now().add(const Duration(seconds: 60));
+      while (DateTime.now().isBefore(deadline) &&
+          !sandbox.manifestFile.existsSync()) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
       final manifest = await sandbox.readManifest();
       if (!manifest.ok) {
         return null;
@@ -314,12 +353,14 @@ class PluginRunner {
       if (!manifest.ok) {
         AppLog.error('plugin', 'describe 失败：${manifest.traceback}');
       }
+      manifestOk = true;
       return manifest.script;
     } catch (error, stack) {
       AppLog.error('plugin', 'describe 异常：$error', stack);
       return null;
     } finally {
-      await sandbox.dispose();
+      // 只有确认脚本已结束（拿到清单或明确失败）才清理；否则保留现场
+      if (manifestOk) await sandbox.dispose();
     }
   });
 
