@@ -7,7 +7,9 @@ import '../services/app_log.dart';
 import '../services/plugin/script_meta.dart';
 import '../services/plugin/source_store.dart';
 
-/// 脚本管理页：按类型分组查看、编辑、删除、添加脚本。
+/// 插件管理页：**所有**脚本与规则（书源在内）的查看、编辑、删除、添加。
+///
+/// 分组依据：格式（脚本/规则）× 脚本声明的类型（书源/清洗/其他）。
 ///
 /// 类型来自脚本头部的 `// @script kind=...` 声明（纯 Dart 静态解析，不执行代码）：
 ///   - 书源（kind=source）：出现在「书源」页，可搜索/详情/下载
@@ -40,22 +42,24 @@ class _ScriptsPageState extends State<ScriptsPage> {
     final entries = await _store.load();
     if (!mounted) return;
     setState(() {
-      _scripts = entries.where((e) => e.format == SourceFormat.script).toList();
+      // 脚本与规则都归这里管理（含书源）
+      _scripts = entries.toList();
       _loading = false;
     });
   }
 
   Future<void> _import() async {
-    const group = XTypeGroup(label: '脚本', extensions: ['ht']);
+    const group = XTypeGroup(label: '脚本或规则', extensions: ['ht', 'json']);
     final file = await openFile(acceptedTypeGroups: const [group]);
     if (file == null || !mounted) return;
     final body = await File(file.path).readAsString();
+    final isRule = file.name.toLowerCase().endsWith('.json');
     final meta = ScriptMeta.parse(body);
     await _store.upsert(
       SourceEntry(
-        id: 'script:${DateTime.now().millisecondsSinceEpoch}',
-        name: meta.name ?? file.name.replaceAll(RegExp(r'\.ht$'), ''),
-        format: SourceFormat.script,
+        id: 'plugin:${DateTime.now().millisecondsSinceEpoch}',
+        name: meta.name ?? file.name.replaceAll(RegExp(r'\.(ht|json)$'), ''),
+        format: isRule ? SourceFormat.rule : SourceFormat.script,
         body: body,
         kind: meta.kind,
         description: meta.description ?? '',
@@ -158,7 +162,7 @@ class _ScriptsPageState extends State<ScriptsPage> {
       SourceEntry(
         id: entry.id,
         name: meta.name ?? entry.name,
-        format: SourceFormat.script,
+        format: entry.format,
         body: body,
         kind: meta.kind,
         description: meta.description ?? entry.description,
@@ -219,11 +223,14 @@ result('ok')
   Widget build(BuildContext context) {
     final grouped = <ScriptKind, List<SourceEntry>>{};
     for (final script in _scripts) {
-      grouped.putIfAbsent(script.kind, () => []).add(script);
+      final key = script.format == SourceFormat.rule
+          ? ScriptKind.source
+          : script.kind;
+      grouped.putIfAbsent(key, () => []).add(script);
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('脚本管理'),
+        title: const Text('插件管理'),
         actions: [
           IconButton(
             tooltip: '新建脚本（模板）',
@@ -265,7 +272,8 @@ result('ok')
                             ListTile(
                               title: Text(script.name),
                               subtitle: Text(
-                                '${script.capabilities.isEmpty ? '未声明能力' : script.capabilities.join('/')}'
+                                '${script.format == SourceFormat.rule ? '规则' : '脚本'}'
+                                ' · ${script.capabilities.isEmpty ? '未声明能力' : script.capabilities.join('/')}'
                                 '${script.description.isEmpty ? '' : ' · ${script.description}'}',
                               ),
                               onTap: () => _view(script),

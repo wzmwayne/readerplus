@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
-import 'sources_tab.dart';
+import 'scripts_page.dart';
+import 'search_page.dart';
 import 'shelf_page.dart';
 import 'settings_page.dart';
 
@@ -23,6 +24,7 @@ class _HomeShellState extends State<HomeShell> {
   static const _tabs = <({IconData icon, IconData selected, String label})>[
     (icon: Icons.menu_book_outlined, selected: Icons.menu_book, label: '书架'),
     (icon: Icons.search_outlined, selected: Icons.search, label: '搜索'),
+    (icon: Icons.extension_outlined, selected: Icons.extension, label: '插件'),
     (icon: Icons.settings_outlined, selected: Icons.settings, label: '设置'),
   ];
 
@@ -30,7 +32,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final settings = state.settings;
-    final pages = const [ShelfPage(), SourcesTab(), SettingsPage()];
+    final pages = const [ShelfPage(), SearchPage(), ScriptsPage(), SettingsPage()];
     if (_index >= pages.length) _index = 0;
 
     final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;

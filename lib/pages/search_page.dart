@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
@@ -9,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../services/app_log.dart';
 import '../services/plugin/source_service.dart';
 import '../services/plugin/source_store.dart';
+import 'scripts_page.dart';
 import '../state/app_state.dart';
 
 /// 内置书源（随应用打包，首次进入自动写入仓储）。
@@ -23,12 +23,14 @@ const _builtinSources = <String, ({String name, SourceFormat format, String asse
   ),
 };
 
-/// 书源页：列表 / 导入 / 搜索（实时日志）/ 详情 / 下载入库。
+/// 搜索页：选书源 → 搜索（实时日志）→ 结果 → 详情 → 下载入库。
+///
+/// 书源（含脚本与规则）的**管理**在「脚本」标签页；这里只负责搜与用。
 ///
 /// 全部经 [SourceService] → [PluginExecutor]：一个 isolate 执行器、
 /// 一套宿主能力，脚本与规则行为一致，脚本死循环也杀得掉。
-class SourcesTab extends StatefulWidget {
-  const SourcesTab({super.key, this.store, this.builtinLoader});
+class SearchPage extends StatefulWidget {
+  const SearchPage({super.key, this.store, this.builtinLoader});
 
   /// 仓储可注入（测试用临时目录；正式运行走应用数据目录）。
   final SourceStore? store;
@@ -37,10 +39,10 @@ class SourcesTab extends StatefulWidget {
   final Future<String> Function(String asset)? builtinLoader;
 
   @override
-  State<SourcesTab> createState() => _SourcesTabState();
+  State<SearchPage> createState() => _SearchPageState();
 }
 
-class _SourcesTabState extends State<SourcesTab> {
+class _SearchPageState extends State<SearchPage> {
   late final SourceStore _store = widget.store ?? SourceStore();
   final SourceService _service = const SourceService();
   final TextEditingController _query = TextEditingController();
@@ -93,32 +95,6 @@ class _SourcesTabState extends State<SourcesTab> {
         ..clear()
         ..addAll(onlySources.where((e) => e.enabled).map((e) => e.id));
     });
-  }
-
-  Future<void> _import() async {
-    const group = XTypeGroup(label: '书源脚本或规则', extensions: ['ht', 'json']);
-    final file = await openFile(acceptedTypeGroups: const [group]);
-    if (file == null || !mounted) return;
-    final body = await File(file.path).readAsString();
-    final name = file.name.replaceAll(RegExp(r'\.(ht|json)$'), '');
-    final format = file.name.toLowerCase().endsWith('.json')
-        ? SourceFormat.rule
-        : SourceFormat.script;
-    await _store.upsert(
-      SourceEntry(
-        id: 'user:${DateTime.now().millisecondsSinceEpoch}',
-        name: name,
-        format: format,
-        body: body,
-      ),
-    );
-    AppLog.info('source', '导入书源：$name（${format.name}）');
-    await _load();
-  }
-
-  Future<void> _remove(SourceEntry entry) async {
-    await _store.remove(entry.id);
-    await _load();
   }
 
   Future<void> _search() async {
@@ -269,12 +245,18 @@ class _SourcesTabState extends State<SourcesTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('书源'),
+        title: const Text('搜索'),
         actions: [
           IconButton(
-            tooltip: '导入脚本(.ht)或规则(.json)',
-            icon: const Icon(Icons.add),
-            onPressed: _running ? null : _import,
+            tooltip: '管理脚本与书源',
+            icon: const Icon(Icons.extension_outlined),
+            onPressed: _running
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ScriptsPage(store: widget.store),
+                    ),
+                  ),
           ),
           IconButton(
             tooltip: '刷新',
@@ -306,7 +288,7 @@ class _SourcesTabState extends State<SourcesTab> {
                 ListTile(
                   dense: true,
                   title: Text('书源（已选 ${_selected.length}/${_sources.length}）'),
-                  subtitle: const Text('点击可勾选；长按删除'),
+                  subtitle: const Text('勾选参与搜索的书源；管理请点右上角'),
                 ),
                 for (final entry in _sources)
                   CheckboxListTile(
@@ -326,11 +308,7 @@ class _SourcesTabState extends State<SourcesTab> {
                       ' · ${entry.kind.label}'
                       ' · ${entry.capabilities.join('/')}',
                     ),
-                    secondary: IconButton(
-                      tooltip: '删除',
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      onPressed: _running ? null : () => _remove(entry),
-                    ),
+
                   ),
                 if (_logs.isNotEmpty) ...[
                   const Divider(),
