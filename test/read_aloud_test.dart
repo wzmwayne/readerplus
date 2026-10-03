@@ -143,13 +143,14 @@ void main() {
 
   group('毫秒级起播（首片即播，不等整句）', () {
     test('首片到达后立刻交给播放器，不必等整句合成完', () async {
-      // 每片间隔 120ms：若等整句（2 片）需要 ~240ms
+      // 每片间隔 400ms：整句（3 片）约需 1200ms；首片约 400ms 即应起播。
+      // 阈值取 800ms 留足并行测试时的抖动余地，同时仍能证明"不等整句"。
       final controller = ReadAloudController(
         sink: sink,
         preloadAhead: 2,
         synthesize: fakeSynth(
           log: log,
-          chunkDelay: const Duration(milliseconds: 120),
+          chunkDelay: const Duration(milliseconds: 400),
           chunks: 3,
         ),
       );
@@ -163,8 +164,8 @@ void main() {
       expect(sink.played, isNotEmpty);
       expect(
         sw.elapsedMilliseconds,
-        lessThan(200),
-        reason: '应在首个分片后即起播，而不是等整句（约 360ms）',
+        lessThan(800),
+        reason: '应在首个分片后即起播，而不是等整句（约 1200ms）',
       );
       await controller.stop();
     });
