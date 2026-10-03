@@ -521,7 +521,7 @@ class _ReaderPageState extends State<ReaderPage>
       _applyTap(delta);
       return;
     }
-    // 桌面端延迟：如果紧接着来的是双击（要选中文字），就取消这次翻页
+    // 桌面端延迟：紧接着的双击用于进入选择模式，此时取消这次翻页
     _tapDelay?.cancel();
     _tapDelay = Timer(
       const Duration(milliseconds: 250),
@@ -953,11 +953,11 @@ class _ReaderPageState extends State<ReaderPage>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
-          onDoubleTapDown: (_) => _toggleSelectionMode(),
+          onDoubleTapDown: _desktop ? (_) => _toggleSelectionMode() : null,
           child: PageView.builder(
             controller: _slideController,
-            // 桌面端或选择模式下把拖拽让给文字选择
-            physics: (_desktop || _selectionMode)
+            // 仅选择模式下把滑动让给文字选择；平时滑动翻页（含桌面）
+            physics: _selectionMode
                 ? const NeverScrollableScrollPhysics()
                 : null,
             itemCount: _flat.length,
@@ -1017,12 +1017,12 @@ class _ReaderPageState extends State<ReaderPage>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
-          onDoubleTapDown: (_) => _toggleSelectionMode(),
-          // 桌面端或选择模式：横向拖拽让给文字选择（Android 平时仍是滑动翻页）
-          onHorizontalDragUpdate: (_desktop || _selectionMode)
+          onDoubleTapDown: _desktop ? (_) => _toggleSelectionMode() : null,
+          // 平时（含桌面）横向拖拽翻页；选择模式下让位给文字选择
+          onHorizontalDragUpdate: _selectionMode
               ? null
               : (d) => _onDragUpdate(d, width),
-          onHorizontalDragEnd: (_desktop || _selectionMode)
+          onHorizontalDragEnd: _selectionMode
               ? null
               : (d) => _onDragEnd(d, width),
           child: ValueListenableBuilder<double>(
