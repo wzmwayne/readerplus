@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
-import 'search_tab.dart';
+import 'sources_tab.dart';
 import 'shelf_page.dart';
 import 'settings_page.dart';
 
@@ -30,7 +30,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final settings = state.settings;
-    final pages = const [ShelfPage(), SearchTab(), SettingsPage()];
+    final pages = const [ShelfPage(), SourcesTab(), SettingsPage()];
     if (_index >= pages.length) _index = 0;
 
     final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
