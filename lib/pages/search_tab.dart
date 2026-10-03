@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../services/plugin/book_source.dart';
 import '../services/plugin/plugin_runner.dart';
 import '../services/plugin/plugin_sandbox.dart';
+import '../services/app_log.dart';
 import '../state/app_state.dart';
 import 'source_detail_page.dart';
 
@@ -57,6 +58,7 @@ class _SearchTabState extends State<SearchTab> {
     final scripts = await context.read<AppState>().plugins.load();
     if (!mounted) return;
     final usable = scripts.where(canSearch).toList();
+    AppLog.info('search', '可用书源 ${usable.length} 个：${usable.map((s) => s.name).join('、')}');
     setState(() {
       _sources = usable;
       _selected.removeWhere((id) => !usable.any((s) => s.id == id));
@@ -74,6 +76,10 @@ class _SearchTabState extends State<SearchTab> {
     final query = _query.text.trim();
     if (query.isEmpty || _selected.isEmpty || _running) return;
     final picked = _sources.where((s) => _selected.contains(s.id)).toList();
+    AppLog.info(
+      'search',
+      '开始搜索：关键词="$query" 书源=${picked.map((s) => s.name).join('、')}',
+    );
     setState(() {
       _running = true;
       _showResults = false;
@@ -104,7 +110,8 @@ class _SearchTabState extends State<SearchTab> {
         if (mounted) {
           setState(() => _logs[script.id] = '${_logs[script.id]}完成：${items.length} 条\n');
         }
-      } catch (error) {
+      } catch (error, stack) {
+        AppLog.error('search', '书源 ${script.name} 执行异常：$error', stack);
         if (mounted) setState(() => _errors[script.id] = '$error');
       } finally {
         await subscription.cancel();
@@ -114,6 +121,11 @@ class _SearchTabState extends State<SearchTab> {
     }
 
     if (!mounted) return;
+    AppLog.info(
+      'search',
+      '全部结束：成功=${_errors.values.where((e) => e == null).length}/${picked.length}'
+      '${_errors.entries.where((e) => e.value != null).map((e) => ' 失败[${e.key}]=${e.value}').join()}',
+    );
     final allOk = allSourcesOk(_errors);
     setState(() {
       _running = false;
@@ -350,7 +362,15 @@ class _SearchTabState extends State<SearchTab> {
           ),
           isThreeLine: true,
           onTap: () {
-            final script = _sources.firstWhere((s) => s.id == hit.sourceId);
+            // 书源可能已被删除：找不到就给出提示而不是抛异常
+            final matches = _sources.where((s) => s.id == hit.sourceId);
+            if (matches.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('书源已不可用：${hit.sourceName}')),
+              );
+              return;
+            }
+            final script = matches.first;
             final runner = PluginRunner();
             Navigator.of(context)
                 .push(

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../app_log.dart';
 import 'plugin_runner.dart';
 import 'plugin_sandbox.dart';
 
@@ -77,6 +78,7 @@ class BookSourceService {
     required String query,
     int page = 1,
   }) async {
+    AppLog.info('source', '搜索开始：书源=${script.name} 关键词="$query" 第 $page 页');
     final result = await runner.run(
       scriptSource: script.source,
       jobsRoot: await _root(),
@@ -102,7 +104,11 @@ class BookSourceService {
         final item = SourceItem.fromJson(raw.cast<String, dynamic>());
         if (item != null) items.add(item);
       }
+      AppLog.info('source', '搜索完成：书源=${script.name} 命中 ${items.length} 条');
       return items;
+    } catch (error, stack) {
+      AppLog.error('source', '搜索失败：书源=${script.name}：$error', stack);
+      rethrow;
     } finally {
       await _cleanup(result);
     }
@@ -120,6 +126,7 @@ class BookSourceService {
       params: {'task': 'detail', 'book_id': bookId, ...script.params},
       keepSandbox: true,
     );
+    AppLog.info('source', '取详情：书源=${script.name} id=$bookId');
     try {
       if (!result.ok) {
         throw StateError(
@@ -141,6 +148,10 @@ class BookSourceService {
           }
         }
       }
+      AppLog.info(
+        'source',
+        '详情完成：${item.title} 封面=${cover?.length ?? 0} 字节',
+      );
       return SourceDetail(
         item: item,
         description: (payload['description'] ?? payload['intro'] ?? '')
@@ -148,6 +159,9 @@ class BookSourceService {
         coverBytes: cover,
         coverName: coverName,
       );
+    } catch (error, stack) {
+      AppLog.error('source', '取详情失败：书源=${script.name} id=$bookId：$error', stack);
+      rethrow;
     } finally {
       await _cleanup(result);
     }

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../services/app_log.dart';
 import '../services/plugin/book_source.dart';
 import '../services/plugin/plugin_sandbox.dart';
 import 'plugin_run_page.dart';
@@ -49,6 +50,7 @@ class _SourceDetailPageState extends State<SourceDetailPage> {
   }
 
   Future<void> _download() async {
+    AppLog.info('search', '进入下载页：${widget.item.title}（id=${widget.item.id}）');
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PluginRunPage(

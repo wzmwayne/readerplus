@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../app_info.dart';
-import 'export_dir.dart';
 
 /// 全局日志与崩溃兜底。
 ///
@@ -41,8 +40,9 @@ class AppLog {
     if (_initialized) return;
     _initialized = true;
     try {
+      // 固定位置：应用数据目录下的 logs/app.log（与 books 同级），始终追加、不轮转、不可覆盖
       final support = await getApplicationSupportDirectory();
-      final dir = Directory('${support.path}/readerplus-logs');
+      final dir = Directory('${support.path}/reader/logs');
       await dir.create(recursive: true);
       final file = File('${dir.path}/app.log');
       _file = file;
@@ -131,28 +131,6 @@ class AppLog {
     return buffer.toString();
   }
 
-  /// 导出报告 + 全部日志到下载目录；返回写出路径。
-  static Future<List<String>> exportToDownloads(String report) async {
-    final dir = await userVisibleDirectory();
-    final stamp = DateTime.now()
-        .toIso8601String()
-        .replaceAll(':', '')
-        .substring(0, 15);
-    final written = <String>[];
-
-    final reportFile = File('${dir.path}/crash-$stamp.md');
-    await reportFile.writeAsString(report, flush: true);
-    written.add(reportFile.path);
-
-    final log = _file;
-    if (log != null && log.existsSync()) {
-      final target = File('${dir.path}/app-log-$stamp.txt');
-      await log.copy(target.path);
-      written.add(target.path);
-    }
-    return written;
-  }
-
   /// 记录一次崩溃并通知界面（尽力而为，不抛异常）。
   static void reportCrash(Object cause, StackTrace? stack, {String? context}) {
     AppLog.error('crash', cause, stack);
@@ -162,8 +140,6 @@ class AppLog {
         listener(report);
       } catch (_) {}
     }
-    // 无论界面是否成功展示，都先落一份到下载目录兜底
-    unawaited(exportToDownloads(report).catchError((_) => <String>[]));
   }
 
   /// 卸载钩子的测试辅助。

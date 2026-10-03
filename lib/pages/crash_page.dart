@@ -39,23 +39,6 @@ class _CrashScreenState extends State<CrashScreen> {
     stack: widget.stack,
     context: widget.context,
   );
-  List<String> _exported = const [];
-  bool _exporting = false;
-
-  Future<void> _export() async {
-    setState(() => _exporting = true);
-    List<String> written;
-    try {
-      written = await AppLog.exportToDownloads(_report);
-    } catch (error) {
-      written = ['导出失败：$error'];
-    }
-    if (!mounted) return;
-    setState(() {
-      _exported = written;
-      _exporting = false;
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +58,7 @@ class _CrashScreenState extends State<CrashScreen> {
             color: Theme.of(context).colorScheme.errorContainer,
             padding: const EdgeInsets.all(12),
             child: Text(
-              '应用遇到问题，已记录日志（可导出后反馈）',
+              '应用遇到问题，信息已写入日志文件',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onErrorContainer,
               ),
@@ -90,27 +73,12 @@ class _CrashScreenState extends State<CrashScreen> {
               ),
             ),
           ),
-          if (_exported.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: SelectableText(
-                '已导出：\n${_exported.join('\n')}',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _exporting ? null : _export,
-                      icon: const Icon(Icons.save_alt, size: 18),
-                      label: Text(_exporting ? '导出中…' : '导出报告与日志到下载目录'),
-                    ),
-                  ),
-                ],
+              child: SelectableText(
+                '日志文件（追加写入）：${AppLog.logPath}',
+                style: const TextStyle(fontSize: 12),
               ),
             ),
           ),

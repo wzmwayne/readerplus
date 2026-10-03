@@ -13,32 +13,12 @@ class DeveloperPage extends StatefulWidget {
 }
 
 class _DeveloperPageState extends State<DeveloperPage> {
-  List<String> _exported = const [];
-
-  Future<void> _export() async {
-    try {
-      final written = await AppLog.exportToDownloads(
-        AppLog.buildReport(context: '开发者页面导出'),
-      );
-      if (mounted) setState(() => _exported = written);
-    } catch (error) {
-      if (mounted) setState(() => _exported = ['导出失败：$error']);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final lines = AppLog.lines;
     return Scaffold(
       appBar: AppBar(
         title: const Text('开发者'),
-        actions: [
-          IconButton(
-            tooltip: '导出日志',
-            icon: const Icon(Icons.save_alt),
-            onPressed: _export,
-          ),
-        ],
       ),
       body: ListView(
         children: [
@@ -64,13 +44,9 @@ class _DeveloperPageState extends State<DeveloperPage> {
             ),
           ),
           const Divider(),
-          ListTile(
-            leading: const Icon(Icons.save_alt),
-            title: const Text('导出日志与报告到下载目录'),
-            subtitle: Text(
-              _exported.isEmpty ? '包含系统环境、应用信息与全部日志' : _exported.join('\n'),
-            ),
-            onTap: _export,
+          const ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('日志为单个文件、始终追加；位置可用环境变量 READERPLUS_LOG_DIR 覆盖'),
           ),
           const Divider(),
           const ListTile(dense: true, title: Text('实时日志（最近 400 行）')),
