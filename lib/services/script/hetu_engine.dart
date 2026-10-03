@@ -54,6 +54,7 @@ class HetuScriptEngine {
             .httpGet(
               '${positionalArgs.first}',
               headers: _stringMap(namedArgs['headers']),
+              includeBytes: namedArgs['wantBytes'] == true,
             )
             .then(_asStruct),
         'httpPost': ({positionalArgs, namedArgs}) => host
@@ -64,6 +65,7 @@ class HetuScriptEngine {
                   (positionalArgs.length > 1 ? positionalArgs[1] : null),
               contentType: namedArgs['contentType']?.toString(),
               headers: _stringMap(namedArgs['headers']),
+              includeBytes: namedArgs['wantBytes'] == true,
             )
             .then(_asStruct),
         'httpRequest': ({positionalArgs, namedArgs}) => host

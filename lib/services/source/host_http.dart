@@ -28,20 +28,25 @@ class HostHttp {
 
   // ---------- 简单用法 ----------
 
-  Future<HostResponse> get(String url, {Map<String, String>? headers}) =>
-      request(url: url, headers: _multi(headers));
+  Future<HostResponse> get(
+    String url, {
+    Map<String, String>? headers,
+    bool includeBytes = false,
+  }) => request(url: url, headers: _multi(headers), includeBytes: includeBytes);
 
   Future<HostResponse> post(
     String url, {
     Object? body,
     Map<String, String>? headers,
     String? contentType,
+    bool includeBytes = false,
   }) => request(
     url: url,
     method: 'POST',
     body: body,
     headers: _multi(headers),
     contentType: contentType,
+    includeBytes: includeBytes,
   );
 
   // ---------- 高自由度用法 ----------
@@ -65,6 +70,8 @@ class HostHttp {
     /// 自签/过期证书场景（默认拒绝，显式开启才放行）。
     bool allowBadCertificate = false,
     bool persistentConnection = false,
+    /// 脚本要求原始字节：响应会额外带上 `bytes`（图片/二进制/自定义加密体）。
+    bool includeBytes = false,
   }) async {
     final client = _factory()
       ..connectionTimeout = connectTimeout
@@ -136,6 +143,7 @@ class HostHttp {
       headers: responseHeaders,
       bodyBytes: bytes,
       text: text,
+      includeBytes: includeBytes,
     );
   }
 
@@ -198,6 +206,7 @@ class HostResponse {
     required this.headers,
     required this.bodyBytes,
     required this.text,
+    this.includeBytes = false,
   });
 
   final int statusCode;
@@ -208,6 +217,9 @@ class HostResponse {
   final Map<String, List<String>> headers;
   final Uint8List bodyBytes;
   final String text;
+
+  /// 脚本是否要求原始字节（要求时 toJson 会带上 `bytes`）。
+  final bool includeBytes;
 
   bool get ok => statusCode >= 200 && statusCode < 300;
 
@@ -222,5 +234,7 @@ class HostResponse {
     'url': finalUrl,
     'headers': headers,
     'text': text,
+    // 仅当脚本明确要字节时才带上（避免大响应白白展开成列表）
+    if (includeBytes) 'bytes': bodyBytes.toList(),
   };
 }

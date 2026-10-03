@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -208,7 +209,12 @@ class _SearchPageState extends State<SearchPage> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _coverImage(cover, width: 84, height: 112),
+                _coverImage(
+                  cover,
+                  data: item['coverData'] ?? '',
+                  width: 84,
+                  height: 112,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -268,10 +274,13 @@ class _SearchPageState extends State<SearchPage> {
   }) async {
     _append('开始下载：$title');
     try {
+      final settings = context.read<AppState>().settings;
       final result = await _service.downloadChapters(
         entry,
         id,
         onLog: _append,
+        // 0 = 不限制（默认）；可在设置里收紧
+        timeout: Duration(seconds: settings.downloadTimeoutSeconds),
         token: _token,
       );
       if (result.chapters.isEmpty) {
@@ -445,7 +454,10 @@ class _SearchPageState extends State<SearchPage> {
                       ),
                       for (final hit in group.items)
                         ListTile(
-                          leading: _coverImage(hit.item['cover'] ?? ''),
+                          leading: _coverImage(
+                            hit.item['cover'] ?? '',
+                            data: hit.item['coverData'] ?? '',
+                          ),
                           title: Text(hit.item['title'] ?? ''),
                           subtitle: Text(
                             '${hit.item['author'] ?? ''} · id: ${hit.item['id'] ?? ''}\n${hit.item['intro'] ?? ''}',
@@ -473,8 +485,14 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  /// 封面：有地址则加载网络图，失败/为空时用书名首字占位（保证每条结果都有封面）。
-  Widget _coverImage(String url, {double width = 44, double height = 58}) {
+  /// 封面：支持 ①coverData(裸 base64) ②cover 为 data: URI ③cover 为图片地址；
+  /// 都没有或加载失败时用占位图（保证每条结果都有封面）。
+  Widget _coverImage(
+    String url, {
+    String data = '',
+    double width = 44,
+    double height = 58,
+  }) {
     final placeholder = Container(
       width: width,
       height: height,
@@ -489,6 +507,22 @@ class _SearchPageState extends State<SearchPage> {
         color: Theme.of(context).colorScheme.outline,
       ),
     );
+    // 内联数据优先（coverData 优先于 cover 里的 data URI）
+    final inline = SourceService.decodeInlineCover(
+      data.trim().isNotEmpty ? data : url,
+    );
+    if (inline != null && inline.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: Image.memory(
+          Uint8List.fromList(inline),
+          width: width,
+          height: height,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stack) => placeholder,
+        ),
+      );
+    }
     if (url.trim().isEmpty) return placeholder;
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),

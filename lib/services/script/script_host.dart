@@ -61,8 +61,13 @@ class ScriptHost {
   Future<Map<String, dynamic>> httpGet(
     String url, {
     Map<String, String>? headers,
+    bool includeBytes = false,
   }) async {
-    final response = await http.get(url, headers: headers);
+    final response = await http.get(
+      url,
+      headers: headers,
+      includeBytes: includeBytes,
+    );
     return response.toJson();
   }
 
@@ -71,12 +76,14 @@ class ScriptHost {
     Object? body,
     Map<String, String>? headers,
     String? contentType,
+    bool includeBytes = false,
   }) async {
     final response = await http.post(
       url,
       body: body,
       headers: headers,
       contentType: contentType,
+      includeBytes: includeBytes,
     );
     return response.toJson();
   }
@@ -102,6 +109,8 @@ class ScriptHost {
       maxRedirects: int.tryParse('${options['maxRedirects'] ?? 5}') ?? 5,
       proxy: options['proxy']?.toString(),
       allowBadCertificate: options['allowBadCertificate'] as bool? ?? false,
+      // wantBytes: true ⇒ 响应里额外带 bytes（原始字节列表）
+      includeBytes: options['wantBytes'] as bool? ?? false,
     );
     return response.toJson();
   }

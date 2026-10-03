@@ -104,10 +104,12 @@ class SourceService {
       final mapped = item.map(
         (key, value) => MapEntry('$key', value == null ? '' : '$value'),
       );
-      // 统一保证字段齐全，方便界面直接渲染（缺封面时留空由界面占位）
+      // 统一保证字段齐全，方便界面直接渲染
       mapped.putIfAbsent('title', () => '');
       mapped.putIfAbsent('author', () => '');
       mapped.putIfAbsent('cover', () => '');
+      // 封面三形态（优先级）：coverData(裸 base64) > cover 为 data: URI > cover 为图片地址
+      mapped.putIfAbsent('coverData', () => '');
       mapped.putIfAbsent('intro', () => '');
       mapped.putIfAbsent('description', () => '');
       return mapped;
@@ -117,11 +119,13 @@ class SourceService {
   /// 下载：取回章节；脚本/规则**还可补充** author / cover(URL) / coverData(base64)。
   ///
   /// 封面若是 URL，则由 App 抓取字节后嵌入 EPUB（严格 EPUB 3 的 cover-image）。
+  /// **超时默认无限制**（`Duration.zero`）：下载大书允许慢慢跑，
+  /// 需要时由设置项或界面「取消」控制。
   Future<DownloadResult> downloadChapters(
     SourceEntry entry,
     String id, {
     void Function(String message)? onLog,
-    Duration timeout = const Duration(minutes: 5),
+    Duration timeout = Duration.zero,
     ScriptCancelToken? token,
   }) async {
     final result = await _run(entry, {
@@ -179,6 +183,39 @@ class SourceService {
       return response.bodyBytes;
     } catch (error) {
       onLog?.call('封面下载失败（忽略）：$error');
+      return null;
+    }
+  }
+
+  /// 解析封面内联数据为字节；不是内联数据则返回 null。
+  ///
+  /// 支持三种写法：
+  ///   - `data:image/jpeg;base64,XXXX`
+  ///   - 裸 base64（`XXXX`）
+  ///   - 空串 / 普通图片地址 ⇒ null（由界面按网络图处理）
+  static List<int>? decodeInlineCover(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return null;
+    final comma = text.indexOf(',');
+    if (text.startsWith('data:')) {
+      if (comma < 0) return null;
+      final meta = text.substring(0, comma).toLowerCase();
+      final payload = text.substring(comma + 1).trim();
+      if (meta.contains('base64')) {
+        try {
+          return CryptoOps.base64Decode(payload);
+        } catch (_) {
+          return null;
+        }
+      }
+      // 非 base64 的 data URI（如 utf8 文本）不当作图片
+      return null;
+    }
+    // 裸 base64：只在看起来像 base64 时尝试（避免把 URL 当 base64）
+    if (text.contains('/') || text.contains(':')) return null;
+    try {
+      return CryptoOps.base64Decode(text);
+    } catch (_) {
       return null;
     }
   }

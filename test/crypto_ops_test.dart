@@ -124,6 +124,8 @@ void main() {
     });
   });
 
+  _cancelTests();
+
   group('脚本可用（隔离执行 + 能力白名单）', () {
     test('脚本内可直接做 AES 解密与摘要', () async {
       // 用已知向量在脚本里做 AES-128-ECB 解密与 md5
@@ -156,4 +158,22 @@ void main() {
       expect(payload['gzipOk'], 5, reason: '脚本内 gzip 往返应还原 hello 的 5 字节');
     });
   });
+}
+
+/// 取消令牌：运行中点击「取消」应立即强制停止（不等超时）。
+void _cancelTests() {
+  test('取消令牌可以在脚本运行中强制停止', () async {
+    final token = ScriptCancelToken();
+    final runner = ScriptRunner(entry: HetuScriptEngine.isolateEntry);
+    final future = runner.run(
+      'var i = 0; while (true) { i = i + 1 }',
+      timeout: const Duration(seconds: 30),
+      token: token,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    token.cancelAll();
+    final result = await future;
+    expect(result.cancelled, isTrue, reason: '应被取消而不是等超时');
+    expect(result.error, contains('取消'));
+  }, tags: 'live');
 }

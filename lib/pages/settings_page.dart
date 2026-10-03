@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_info.dart';
 import '../models/app_settings.dart';
+import '../services/app_log.dart';
 import '../state/app_state.dart';
 import 'developer_page.dart';
 import 'scripts_page.dart';
@@ -109,6 +110,18 @@ class SettingsPage extends StatelessWidget {
           const Divider(),
           const SettingsReadAloudSection(),
           const Divider(),
+          const _SectionTitle('脚本'),
+          ListTile(
+            leading: const Icon(Icons.hourglass_empty),
+            title: const Text('下载脚本运行上限'),
+            subtitle: Text(
+              state.settings.downloadTimeoutSeconds == 0
+                  ? '不限制（默认）· 可随时在搜索页点「取消」强制停止'
+                  : '${state.settings.downloadTimeoutSeconds ~/ 60} 分钟',
+            ),
+            onTap: () => _pickDownloadTimeout(context),
+          ),
+          const Divider(),
           const _SectionTitle('关于'),
           const ListTile(
             title: Text('阅读 readerplus'),
@@ -147,6 +160,41 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
+  /// 下载脚本运行上限：0 = 不限制（默认）。
+  Future<void> _pickDownloadTimeout(BuildContext context) async {
+    final state = context.read<AppState>();
+    const options = <({String label, int seconds})>[
+      (label: '不限制（默认）', seconds: 0),
+      (label: '5 分钟', seconds: 5 * 60),
+      (label: '30 分钟', seconds: 30 * 60),
+      (label: '2 小时', seconds: 2 * 60 * 60),
+    ];
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('下载脚本运行上限'),
+        children: [
+          for (final option in options)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(option.seconds),
+              child: ListTile(
+                title: Text(option.label),
+                trailing: state.settings.downloadTimeoutSeconds == option.seconds
+                    ? const Icon(Icons.check)
+                    : null,
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    state.settings.downloadTimeoutSeconds = picked;
+    await state.saveSettings();
+    AppLog.info(
+      'settings',
+      '下载脚本运行上限已设为 ${picked == 0 ? '不限制' : '$picked 秒'}',
+    );
+  }
 }
 
 class _SectionTitle extends StatelessWidget {

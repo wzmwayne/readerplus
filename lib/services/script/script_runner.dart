@@ -75,6 +75,7 @@ class ScriptRunner {
 
   Future<ScriptRunResult> run(
     String source, {
+    /// 运行上限：`Duration.zero`（默认以外的约定值）表示**不设上限**。
     Duration timeout = const Duration(seconds: 60),
     Map<String, List<int>> inputs = const {},
     Directory? outputDir,
@@ -159,13 +160,17 @@ class ScriptRunner {
 
     token?.attach(killNow);
 
-    final timer = Timer(
-      timeout,
-      () => killNow('执行超时（${timeout.inSeconds}s），已强制终止'),
-    );
+    // timeout 为 Duration.zero 或负数 ⇒ 不设上限（靠界面「取消」或脚本自身结束）。
+    // 默认只对搜索等短任务设上限；下载默认无限制，可在设置里改。
+    final timer = timeout > Duration.zero
+        ? Timer(
+            timeout,
+            () => killNow('执行超时（${timeout.inSeconds}s），已强制终止'),
+          )
+        : null;
 
     final result = await done.future;
-    timer.cancel();
+    timer?.cancel();
     token?.detach(killNow);
     return result;
   }

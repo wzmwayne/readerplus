@@ -18,6 +18,11 @@ class AppSettings {
   /// 脚本沙盒审计钩子（默认开启：禁止脚本访问沙盒外的文件）。
   bool scriptSandboxAudit;
 
+  /// 下载脚本的运行上限（秒）。**0 = 不限制**（默认）。
+  /// 搜索保持短上限，避免卡住界面；下载大书允许长时间跑，
+  /// 需要时可在设置里收紧，或随时用搜索页的「取消」强制停止。
+  int downloadTimeoutSeconds;
+
   AppSettings({
     this.themeIndex = 0,
     this.gridLayout = true,
@@ -28,6 +33,7 @@ class AppSettings {
     this.portraitLabels = false,
     this.landscapeExpanded = false,
     this.scriptSandboxAudit = true,
+    this.downloadTimeoutSeconds = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -40,6 +46,7 @@ class AppSettings {
     'portraitLabels': portraitLabels,
     'landscapeExpanded': landscapeExpanded,
       'scriptSandboxAudit': scriptSandboxAudit,
+      'downloadTimeoutSeconds': downloadTimeoutSeconds,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -62,6 +69,8 @@ class AppSettings {
     portraitLabels: json['portraitLabels'] as bool? ?? false,
     landscapeExpanded: json['landscapeExpanded'] as bool? ?? false,
       scriptSandboxAudit: json['scriptSandboxAudit'] as bool? ?? true,
+    downloadTimeoutSeconds:
+        (json['downloadTimeoutSeconds'] as num?)?.toInt() ?? 0,
   );
 }
 
