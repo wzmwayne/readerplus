@@ -38,6 +38,9 @@ class SeriousPythonRuntime implements PluginRuntime {
       );
       // 取消时直接结束运行时，不再等待本次调用返回
       final output = await Future.any<Object?>([run, _cancelled!.future]);
+      if (output is String && output.trim().isNotEmpty) {
+        AppLog.info('plugin', 'python 输出：${output.trim()}');
+      }
       // 把 Python 侧输出留档：脚本没写 manifest 时，宿主据此给出线索
       if (output is String && output.trim().isNotEmpty) {
         try {
@@ -97,12 +100,8 @@ class PluginRunner {
     /// 成功时也保留沙盒（调用方读完产物后自行清理）。
     bool keepSandbox = false,
   }) async {
-    final previous = _queue;
-    final gate = Completer<void>();
-    _queue = gate.future;
-    await previous;
-    try {
-      return await _runLocked(
+    return _serialize(
+      () => _runLocked(
         scriptSource: scriptSource,
         jobsRoot: jobsRoot,
         audit: audit,
@@ -111,7 +110,18 @@ class PluginRunner {
         timeout: timeout,
         keepSandboxOnError: keepSandboxOnError,
         keepSandbox: keepSandbox,
-      );
+      ),
+    );
+  }
+
+  /// 单解释器：所有对运行时的使用都在此串行。
+  static Future<T> _serialize<T>(Future<T> Function() action) async {
+    final previous = _queue;
+    final gate = Completer<void>();
+    _queue = gate.future;
+    await previous;
+    try {
+      return await action();
     } finally {
       if (!gate.isCompleted) gate.complete();
     }
@@ -134,7 +144,8 @@ class PluginRunner {
       _sandbox = sandbox;
       AppLog.info(
         'plugin',
-        '执行开始：task=${params['task']} 目录=${sandbox.root.path}',
+        '执行开始：task=${params['task']} 审计=$audit 脚本 ${scriptSource.length} 字符 '
+        '输入=${inputs.keys.join('、')} 目录=${sandbox.root.path}',
       );
       _logOffset = 0;
       await sandbox.writeParams(params);
@@ -184,6 +195,10 @@ class PluginRunner {
       'plugin',
       ok ? '执行成功：${manifest.outputs.join('、')}' : '执行失败：$traceback',
     );
+    if (log.trim().isNotEmpty) {
+      final tail = log.length > 2000 ? log.substring(log.length - 2000) : log;
+      AppLog.info('plugin', '脚本日志尾部：\n$tail');
+    }
     final result = PluginRunResult(
       ok: ok,
       outputs: ok ? sandbox.listOutputs() : const [],
@@ -201,11 +216,19 @@ class PluginRunner {
   void cancel() => _runtime.cancel();
 
   /// 读取脚本内的 SCRIPT 声明（不执行脚本主流程）。
+  ///
+  /// 与 [run] 共用同一串行队列：Python 是单解释器，并发使用会直接崩进程。
   Future<Map<String, dynamic>?> describe({
     required String scriptSource,
     required Directory jobsRoot,
     required bool audit,
-  }) async {
+  }) => _serialize(() async {
+    final started = DateTime.now();
+    AppLog.info(
+      'plugin',
+      'describe 开始：脚本 ${scriptSource.length} 字符、审计=$audit、'
+      '工作目录=${jobsRoot.path}',
+    );
     final sandbox = await PluginSandbox.create(jobsRoot);
     try {
       await sandbox.writeParams({'task': 'describe'});
@@ -213,17 +236,26 @@ class PluginRunner {
       await _runtime.runSandbox(sandbox.root.path, audit: audit);
       final manifest = await sandbox.readManifest();
       if (!manifest.ok) {
-        debugPrint('[plugin] describe 失败：${manifest.traceback}');
         return null;
       }
+      final log = await sandbox.readLog();
+      if (log.trim().isNotEmpty) AppLog.info('plugin', 'describe 日志：$log');
+      AppLog.info(
+        'plugin',
+        'describe 结束：耗时 ${DateTime.now().difference(started).inMilliseconds}ms、'
+        '结果=${manifest.script == null ? '无声明' : '已解析'}',
+      );
+      if (!manifest.ok) {
+        AppLog.error('plugin', 'describe 失败：${manifest.traceback}');
+      }
       return manifest.script;
-    } catch (error) {
-      debugPrint('[plugin] describe 异常：$error');
+    } catch (error, stack) {
+      AppLog.error('plugin', 'describe 异常：$error', stack);
       return null;
     } finally {
       await sandbox.dispose();
     }
-  }
+  });
 
   void _startTailing(PluginSandbox sandbox) {
     _logTimer?.cancel();

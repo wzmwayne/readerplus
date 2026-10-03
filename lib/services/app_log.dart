@@ -19,7 +19,6 @@ class AppLog {
 
   static final Queue<String> _buffer = Queue<String>();
   static final List<File> _files = <File>[];
-  static final List<IOSink> _sinks = <IOSink>[];
   static bool _initialized = false;
   static final List<void Function(String report)> _crashListeners = [];
 
@@ -62,9 +61,7 @@ class AppLog {
     for (final dir in dirs) {
       try {
         await dir.create(recursive: true);
-        final file = File('${dir.path}/app.log');
-        _files.add(file);
-        _sinks.add(file.openWrite(mode: FileMode.append));
+        _files.add(File('${dir.path}/app.log'));
       } catch (_) {
         // 该位置不可用时跳过，其他位置继续
       }
@@ -89,11 +86,39 @@ class AppLog {
       while (_buffer.length > maxLines) {
         _buffer.removeFirst();
       }
-      for (final sink in _sinks) {
-        try {
-          sink.writeln(entry);
-        } catch (_) {}
+      // 自己打的日志（plugin/search/import/crash 等）同步落盘：闪退时也不丢。
+      // 框架日志（fw，来自 debugPrint，量最大）先入队，由定时器合并写入，
+      // 否则每行两次同步写文件会把界面拖卡。
+      if (tag != 'fw' && _pendingFramework.isNotEmpty) _flushFramework();
+      if (tag == 'fw') {
+        _pendingFramework.add(entry);
+        _frameworkFlush ??= Timer(
+          const Duration(milliseconds: 300),
+          _flushFramework,
+        );
+      } else {
+        _append('$entry\n');
       }
+    }
+  }
+
+  static final List<String> _pendingFramework = <String>[];
+  static Timer? _frameworkFlush;
+
+  static void _flushFramework() {
+    _frameworkFlush = null;
+    if (_pendingFramework.isEmpty) return;
+    final batch = _pendingFramework.join('\n');
+    _pendingFramework.clear();
+    _append('$batch\n');
+  }
+
+  static void _append(String text) {
+    if (text.isEmpty) return;
+    for (final file in _files) {
+      try {
+        file.writeAsStringSync(text, mode: FileMode.append, flush: false);
+      } catch (_) {}
     }
   }
 
@@ -158,7 +183,9 @@ class AppLog {
     if (_reporting) return;
     _reporting = true;
     try {
+      flush();
       _reportCrash(cause, stack, context: context);
+      flush();
     } catch (_) {
       // 上报本身出错也不能再抛
     } finally {
@@ -178,9 +205,19 @@ class AppLog {
 
   /// 卸载钩子的测试辅助。
   @visibleForTesting
+  /// 主动刷出缓冲（崩溃页/退出前调用）。
+  static void flush() {
+    _flushFramework();
+    for (final file in _files) {
+      try {
+        // 触发一次 fsync 级别的落盘
+        file.writeAsStringSync('', mode: FileMode.append, flush: true);
+      } catch (_) {}
+    }
+  }
+
   static void resetForTest() {
     _buffer.clear();
-    _sinks.clear();
     _files.clear();
     _initialized = false;
     _crashListeners.clear();

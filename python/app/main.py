@@ -154,6 +154,7 @@ def _resolve_sandbox_root():
     """
     root = os.environ.pop("SANDBOX_ROOT", "")
     if root:
+        print(f"[host] 沙盒目录来自环境变量：{root}")
         return root
     for candidate in ("readerplus_job.txt", os.path.join("data", "readerplus_job.txt")):
         try:
@@ -180,6 +181,7 @@ def main():
 
     os.makedirs("output", exist_ok=True)
 
+    print(f"[host] 输出目录：{os.path.join(sandbox_root, 'output')}")
     log_file = open(os.path.join("output", "log.txt"), "a", encoding="utf-8", buffering=1)
     sys.stdout = _Tee(sys.stdout, log_file)
     sys.stderr = _Tee(sys.stderr, log_file)

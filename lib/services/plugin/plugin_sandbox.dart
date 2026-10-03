@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+
+import '../app_log.dart';
 import 'dart:io';
 import 'dart:math';
 
@@ -177,6 +179,13 @@ class PluginSandbox {
   >
   readManifest() async {
     if (!manifestFile.existsSync()) {
+      final inOutput = File('${output.path}/manifest.json');
+      final atRoot = File('${root.path}/manifest.json');
+      AppLog.error(
+        'plugin',
+        '未找到结果清单：${inOutput.path}（存在=${inOutput.existsSync()}）、'
+        '${atRoot.path}（存在=${atRoot.existsSync()}）',
+      );
       return (
         ok: false,
         traceback: '脚本未写出 manifest.json',
@@ -184,9 +193,13 @@ class PluginSandbox {
         script: null,
       );
     }
+    final raw = await manifestFile.readAsString();
+    AppLog.info(
+      'plugin',
+      '读到结果清单：${manifestFile.path}（${raw.length} 字节）',
+    );
     try {
-      final decoded =
-          jsonDecode(await manifestFile.readAsString()) as Map<String, dynamic>;
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
       final status = decoded['status'] as String? ?? 'error';
       final outputs =
           (decoded['outputs'] as List?)?.cast<String>() ?? const <String>[];
@@ -197,6 +210,11 @@ class PluginSandbox {
         script: (decoded['script'] as Map?)?.cast<String, dynamic>(),
       );
     } catch (error) {
+      AppLog.error(
+        'plugin',
+        'manifest.json 解析失败：$error；内容前 200 字符：'
+        '${raw.length > 200 ? raw.substring(0, 200) : raw}',
+      );
       return (
         ok: false,
         traceback: 'manifest.json 解析失败：$error',

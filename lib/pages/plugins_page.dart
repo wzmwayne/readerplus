@@ -43,9 +43,11 @@ class _PluginsPageState extends State<PluginsPage> {
 
   Future<void> _importFile() async {
     const group = XTypeGroup(label: 'Python 脚本', extensions: ['py']);
+    AppLog.info('plugin', '选择脚本文件…');
     final file = await openFile(acceptedTypeGroups: const [group]);
     if (file == null || !mounted) return;
     final name = file.name.replaceAll(RegExp(r'\.py$'), '');
+    AppLog.info('plugin', '已选择：${file.path}（名称=$name）');
     final String source;
     try {
       // 脚本可能是非 UTF-8 编码（GBK/Big5 等），或用 .py 命名的二进制文件
@@ -62,8 +64,11 @@ class _PluginsPageState extends State<PluginsPage> {
     if (!mounted) return;
     final state = context.read<AppState>();
     try {
+      AppLog.info('plugin', '写入脚本仓储：$name（${source.length} 字符）');
       final script = await state.plugins.importSource(source, name: name);
+      AppLog.info('plugin', '仓储写入完成，id=${script.id}；开始读取脚本声明');
       await _describe(state, script);
+      AppLog.info('plugin', '声明处理完成，刷新列表');
       if (!mounted) return;
       await _reload();
       if (mounted) _toast('已导入：$name');
@@ -158,11 +163,13 @@ class _PluginsPageState extends State<PluginsPage> {
   Future<void> _describe(AppState state, PluginScript script) async {
     try {
       final temp = await getTemporaryDirectory();
+      AppLog.info('plugin', '调用 describe（${script.name}）');
       final declaration = await state.pluginRunner.describe(
         scriptSource: script.source,
         jobsRoot: Directory('${temp.path}/plugin_jobs'),
         audit: state.settings.scriptSandboxAudit,
       );
+      AppLog.info('plugin', 'describe 返回：${declaration ?? '空'}');
       if (declaration == null) return;
       final kind = (declaration['kind'] ?? '').toString();
       script
