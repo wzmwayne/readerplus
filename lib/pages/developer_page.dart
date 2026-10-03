@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../app_info.dart';
 import '../services/app_log.dart';
+import '../services/plugin/runtime_probe.dart';
 
 /// 开发者页面：连续点击「版本」进入，提供日志与排查相关的工具。
 ///
@@ -108,6 +109,38 @@ class _DeveloperPageState extends State<DeveloperPage> {
             dense: true,
             title: const Text('日志文件（单个、永远追加）'),
             subtitle: Text(AppLog.logPaths.join('\n')),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.science_outlined),
+            title: const Text('运行时探针日志'),
+            subtitle: const Text('判定嵌入式解释器是否真的启动（probe.log）'),
+            onTap: () async {
+              final text = await RuntimeProbe.read();
+              if (!context.mounted) return;
+              await showDialog<void>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('probe.log'),
+                  content: SizedBox(
+                    width: 600,
+                    height: 460,
+                    child: SingleChildScrollView(
+                      child: SelectableText(
+                        text,
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                      ),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('关闭'),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
           const Divider(),
           ListTile(

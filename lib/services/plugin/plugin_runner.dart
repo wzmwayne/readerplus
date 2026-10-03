@@ -13,9 +13,6 @@ import 'plugin_sandbox.dart';
 class SeriousPythonRuntime implements PluginRuntime {
   Completer<void>? _cancelled;
 
-  /// 最近一次运行时的启动诊断（心跳是否到达），供宿主写进日志与错误信息。
-  String lastBootDiagnosis = '';
-
   /// 解包目录与心跳文件：用于判断"Python 入口是否真的执行过"。
   Future<({Directory? flet, Directory? app, File? heartbeat})> _paths() async {
     try {
@@ -34,7 +31,6 @@ class SeriousPythonRuntime implements PluginRuntime {
   Future<void> runSandbox(String sandboxPath, {required bool audit}) async {
     _cancelled = Completer<void>();
     final paths = await _paths();
-    lastBootDiagnosis = '';
 
     // 运行前：解包目录必须有入口脚本，否则清掉让运行时重新解包
     final app = paths.app;
@@ -82,13 +78,7 @@ class SeriousPythonRuntime implements PluginRuntime {
       if (output is String && output.trim().isNotEmpty) {
         AppLog.info('plugin', 'python 输出：${output.trim()}');
       }
-      if (!_heartbeatArrived(paths, sandboxPath)) {
-        // 只诊断不重试：单进程内二次启动解释器会直接 abort（#8 可用的构建没有这一步）
-        lastBootDiagnosis = 'Python 入口未执行（运行时启动阶段失败）';
-        AppLog.error('plugin', '$lastBootDiagnosis：未收到任何 [host] 输出');
-      } else {
-        AppLog.info('plugin', 'Python 入口已启动（收到心跳）');
-      }
+      AppLog.info('plugin', '解释器调用已返回，等待产出信号…');
       // 把 Python 侧输出留档：脚本没写 manifest 时，宿主据此给出线索
       if (output is String && output.trim().isNotEmpty) {
         try {
@@ -103,27 +93,6 @@ class SeriousPythonRuntime implements PluginRuntime {
       // 运行时未打包时，serious_python 会以缺包/缺 main.py 的形式报错
       throw StateError('Python 运行时不可用：$error');
     }
-  }
-
-  /// 心跳是否到达：判断 Python 入口有没有真的执行过。
-  bool _heartbeatArrived(
-    ({Directory? flet, Directory? app, File? heartbeat}) paths,
-    String sandboxPath,
-  ) {
-    final candidates = <File>[
-      if (paths.heartbeat != null) paths.heartbeat!,
-      if (paths.app != null) File('${paths.app!.path}/host_boot.txt'),
-      if (paths.flet != null) File('${paths.flet!.path}/data/host_boot.txt'),
-      if (paths.app != null)
-        File('${paths.app!.parent.parent.path}/data/host_boot.txt'),
-      File('$sandboxPath/host_boot.txt'),
-    ];
-    for (final file in candidates) {
-      try {
-        if (file.existsSync()) return true;
-      } catch (_) {}
-    }
-    return false;
   }
 
   @override
@@ -360,7 +329,11 @@ class PluginRunner {
         '结果=${manifest.script == null ? '无声明' : '已解析'}',
       );
       if (!manifest.ok) {
-        AppLog.error('plugin', 'describe 失败：${manifest.traceback}');
+        AppLog.error(
+          'plugin',
+          'describe 未拿到声明：${manifest.traceback}'
+          '（清单路径 ${sandbox.manifestFile.path}，存在=${sandbox.manifestFile.existsSync()}）',
+        );
       }
       manifestOk = true;
       return manifest.script;

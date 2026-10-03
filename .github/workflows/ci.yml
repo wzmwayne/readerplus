@@ -154,6 +154,7 @@ jobs:
           # 插件的运行时压缩包下载偶发失败，失败即重试
           for attempt in 1 2 3; do
             flutter build apk --debug --target-platform android-arm64 \
+              --dart-define=PLUGIN_PROBE=1 \
               --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} \
               --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }} && break
             echo "第 $attempt 次构建失败，10 秒后重试…"

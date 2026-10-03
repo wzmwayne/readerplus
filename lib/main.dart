@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'pages/crash_page.dart';
 import 'pages/home_shell.dart';
 import 'services/app_log.dart';
+import 'services/plugin/runtime_probe.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
 
@@ -19,6 +20,8 @@ Future<void> main() async {
   installCrashHandlers(appNavigatorKey);
   // 先把设置读出来再渲染第一帧：否则首帧会用默认主题，随后才切到用户选择的主题，
   // 表现为开屏时一闪而过的「默认主题」。
+  // 诊断探针：一次安装即可判定解释器是否真的启动（默认关闭）
+  await RuntimeProbe.runIfEnabled();
   final state = AppState();
   await state.init();
   if (kDebugMode) {
