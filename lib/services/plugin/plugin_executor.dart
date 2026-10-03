@@ -83,8 +83,15 @@ class PluginExecutor {
 
     /// 取消令牌：界面点「取消」即真取消（Isolate.kill）。
     ScriptCancelToken? token,
+
+    /// 脚本提问回调（界面弹对话框；为 null 时脚本 ask 得到 {ok:false}）。
+    Future<AskReply> Function(AskRequest request)? onAsk,
   }) async {
-    final runner = ScriptRunner(entry: isolateEntry, onLog: onLog);
+    final runner = ScriptRunner(
+      entry: isolateEntry,
+      onLog: onLog,
+      onAsk: onAsk,
+    );
     final run = await runner.run(
       job.rule ?? job.source,
       timeout: job.timeout,

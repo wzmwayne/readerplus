@@ -59,19 +59,49 @@ class ScriptRunResult {
   final bool cancelled;
 }
 
+/// 脚本向用户提问的内容（只有文本问答；`secret` 时输入遮挡且**回答不入日志**）。
+class AskRequest {
+  const AskRequest({required this.question, this.secret = false, this.default_ = ''});
+
+  final String question;
+
+  /// true ⇒ 秘密询问：输入框遮挡，回答不写日志。
+  final bool secret;
+
+  /// 预填文本（可选）。
+  final String default_;
+
+  @override
+  String toString() => secret ? '询问（秘密）：$question' : '询问：$question';
+}
+
+/// 用户对提问的回答；`ok == false` 表示取消/超时/不可用，脚本需自行处理。
+class AskReply {
+  const AskReply({required this.ok, this.answer = ''});
+
+  const AskReply.cancelled() : ok = false, answer = '';
+
+  final bool ok;
+  final String answer;
+}
+
 /// 脚本运行器：在**独立 isolate** 内执行脚本。
 ///
 /// 因此具备 Python 方案永远给不了的两件事：
 ///  1. 硬超时到点直接 `Isolate.kill` ⇒ **真取消**（死循环也杀得掉，App 毫发无损）；
 ///  2. 脚本异常/崩溃只影响该 isolate，宿主进程不受影响。
 class ScriptRunner {
-  const ScriptRunner({required this.entry, this.onLog});
+  const ScriptRunner({required this.entry, this.onLog, this.onAsk});
 
   /// 引擎入口（例如 `HetuScriptEngine.isolateEntry`）。
   final ScriptIsolateEntry entry;
 
   /// 日志实时回调（在主 isolate 收到，可直接刷界面/写日志文件）。
   final void Function(String message)? onLog;
+
+  /// 脚本提问回调（在主 isolate 收到，可弹对话框）。
+  /// 为 null 时脚本的 `ask` 立即得到 `{ok:false}`（无 UI 场景）。
+  final Future<AskReply> Function(AskRequest request)? onAsk;
 
   Future<ScriptRunResult> run(
     String source, {
@@ -93,29 +123,6 @@ class ScriptRunner {
       if (done.isCompleted) return;
       done.complete(result);
     }
-
-    receive.listen((message) {
-      if (message is String) {
-        logs.add(message);
-        onLog?.call(message);
-        return;
-      }
-      if (message is Map) {
-        isolate?.kill(priority: Isolate.immediate);
-        isolate = null;
-        receive.close();
-        finish(
-          ScriptRunResult(
-            ok: message['ok'] == true,
-            result: message['result'],
-            error: '${message['error'] ?? ''}',
-            logs: logs,
-            elapsed: DateTime.now().difference(started),
-            cancelled: false,
-          ),
-        );
-      }
-    });
 
     try {
       isolate = await Isolate.spawn<Map<String, Object?>>(_spawnEntry, {
@@ -162,12 +169,76 @@ class ScriptRunner {
 
     // timeout 为 Duration.zero 或负数 ⇒ 不设上限（靠界面「取消」或脚本自身结束）。
     // 默认只对搜索等短任务设上限；下载默认无限制，可在设置里改。
-    final timer = timeout > Duration.zero
-        ? Timer(
-            timeout,
-            () => killNow('执行超时（${timeout.inSeconds}s），已强制终止'),
-          )
-        : null;
+    Timer? timer;
+    void armTimeout() {
+      timer?.cancel();
+      if (timeout <= Duration.zero) return;
+      timer = Timer(
+        timeout,
+        () => killNow('执行超时（${timeout.inSeconds}s），已强制终止'),
+      );
+    }
+
+    armTimeout();
+
+    /// 提问往返：暂停超时（用户打字不能被硬超时打断），回答后重新计时。
+    Future<void> handleAsk(Map<Object?, Object?> message) async {
+      timer?.cancel();
+      final replyPort = message['replyTo'] as SendPort?;
+      final request = AskRequest(
+        question: '${message['question'] ?? ''}',
+        secret: message['secret'] == true,
+        default_: '${message['default'] ?? ''}',
+      );
+      AskReply reply;
+      final handler = onAsk;
+      if (handler == null || replyPort == null) {
+        const hint = '没有可用的界面来提问，已按取消处理';
+        logs.add(hint);
+        onLog?.call(hint);
+        reply = const AskReply.cancelled();
+      } else {
+        try {
+          reply = await handler(request);
+        } catch (error) {
+          reply = const AskReply.cancelled();
+          logs.add('提问失败：$error');
+          onLog?.call('提问失败：$error');
+        }
+      }
+      try {
+        replyPort?.send({'ok': reply.ok, 'answer': reply.answer});
+      } catch (_) {}
+      armTimeout();
+    }
+
+    receive.listen((message) {
+      if (message is String) {
+        logs.add(message);
+        onLog?.call(message);
+        return;
+      }
+      if (message is Map && message['type'] == 'ask') {
+        // 脚本提问：交给界面，回答后送回脚本（子 isolate 的 replyPort）。
+        unawaited(handleAsk(message));
+        return;
+      }
+      if (message is Map) {
+        isolate?.kill(priority: Isolate.immediate);
+        isolate = null;
+        receive.close();
+        finish(
+          ScriptRunResult(
+            ok: message['ok'] == true,
+            result: message['result'],
+            error: '${message['error'] ?? ''}',
+            logs: logs,
+            elapsed: DateTime.now().difference(started),
+            cancelled: false,
+          ),
+        );
+      }
+    });
 
     final result = await done.future;
     timer?.cancel();

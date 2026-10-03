@@ -37,6 +37,28 @@ class HetuScriptEngine {
           ? null
           : Directory(outputPath),
       params: params,
+      // 提问往返：向主 isolate 发请求，等它把用户回答送到本 isolate 的临时端口
+      askRelay: (question, secret, preset) async {
+        final port = ReceivePort();
+        send.send({
+          'type': 'ask',
+          'question': question,
+          'secret': secret,
+          'default': preset,
+          'replyTo': port.sendPort,
+        });
+        try {
+          final reply = await port.first.timeout(
+            const Duration(minutes: 5),
+            onTimeout: () => {'ok': false, 'answer': ''},
+          );
+          return reply is Map
+              ? reply.map((key, value) => MapEntry('$key', value))
+              : <String, Object?>{'ok': false, 'answer': ''};
+        } finally {
+          port.close();
+        }
+      },
     );
     Hetu? hetu;
     _hetu = null;
@@ -49,6 +71,21 @@ class HetuScriptEngine {
         'result': ({positionalArgs, namedArgs}) {
           host.setResult(positionalArgs.isEmpty ? null : positionalArgs.first);
           return null;
+        },
+        // 询问用户：脚本用 .then(...) 接答案；secret: true 时遮挡且不入日志
+        // 两种写法都支持：ask('问题', {secret: true}) 与 ask('问题', secret: true)
+        'ask': ({positionalArgs, namedArgs}) {
+          final options = positionalArgs.length > 1
+              ? (_toSendable(positionalArgs[1]) as Map?)?.map(
+                      (key, value) => MapEntry('$key', value),
+                    ) ??
+                    const <String, Object?>{}
+              : namedArgs;
+          return host.ask(
+            '${positionalArgs.isEmpty ? (options['question'] ?? '') : positionalArgs.first}',
+            secret: options['secret'] == true,
+            preset: '${options['preset'] ?? options['default'] ?? ''}',
+          );
         },
         'httpGet': ({positionalArgs, namedArgs}) => host
             .httpGet(

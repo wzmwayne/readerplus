@@ -73,10 +73,12 @@ class SourceService {
     void Function(String message)? onLog,
     Duration timeout = const Duration(seconds: 60),
     ScriptCancelToken? token,
+    Future<AskReply> Function(AskRequest request)? onAsk,
   }) => executor.run(
     _job(entry, params: params, timeout: timeout),
     onLog: onLog,
     token: token,
+    onAsk: onAsk,
   );
 
   /// 搜索：返回统一结构的条目（id/title/author/cover/intro/description）。
@@ -89,12 +91,13 @@ class SourceService {
     int page = 1,
     void Function(String message)? onLog,
     ScriptCancelToken? token,
+    Future<AskReply> Function(AskRequest request)? onAsk,
   }) async {
     final result = await _run(entry, {
       'task': 'search',
       'query': query,
       'page': '$page',
-    }, onLog: onLog, token: token);
+    }, onLog: onLog, token: token, onAsk: onAsk);
     if (!result.ok) throw SourceFailure(result.error.isEmpty ? '搜索失败' : result.error);
     final payload = result.result;
     if (payload is! Map) return const [];
@@ -127,11 +130,12 @@ class SourceService {
     void Function(String message)? onLog,
     Duration timeout = Duration.zero,
     ScriptCancelToken? token,
+    Future<AskReply> Function(AskRequest request)? onAsk,
   }) async {
     final result = await _run(entry, {
       'task': 'download',
       'id': id,
-    }, onLog: onLog, timeout: timeout, token: token);
+    }, onLog: onLog, timeout: timeout, token: token, onAsk: onAsk);
     if (!result.ok) throw SourceFailure(result.error.isEmpty ? '下载失败' : result.error);
     final payload = result.result;
     final chapters = <({String title, String body})>[];

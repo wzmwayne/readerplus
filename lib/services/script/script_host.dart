@@ -22,6 +22,7 @@ class ScriptHost {
     Map<String, List<int>> inputs = const {},
     this.outputDir,
     Map<String, String> params = const {},
+    this.askRelay,
   }) : http = http ?? HostHttp(),
        inputs = Map.unmodifiable(inputs),
        params = Map.unmodifiable(params);
@@ -29,6 +30,19 @@ class ScriptHost {
   final void Function(String message) onLog;
   final HostHttp http;
   final Duration timeout;
+
+  /// 向界面提问的往返通道（由引擎提供：发消息给主 isolate 并等回答）。
+  /// 为 null 时 `ask` 直接返回 `{ok:false}`（无界面场景）。
+  final Future<Map<String, Object?>> Function(
+    String question,
+    bool secret,
+    String preset,
+  )?
+  askRelay;
+
+  /// 每次运行的提问次数上限，防脚本狂弹框。
+  static const int maxAsks = 10;
+  int _askCount = 0;
 
   /// 本次运行的输入文件（宿主放入，脚本只读）。
   final Map<String, List<int>> inputs;
@@ -56,6 +70,51 @@ class ScriptHost {
 
   // ---------- 日志 ----------
   void log(Object? message) => onLog('${message ?? ''}');
+
+  // ---------- 询问用户（脚本用 .then 接回答；秘密询问不入日志）----------
+
+  /// 向用户提问，返回 `{ok, answer}` 的 Future。
+  ///
+  /// - `secret: false`（默认，明文）：输入框正常显示，问题与回答都可入日志；
+  /// - `secret: true`（秘密）：输入框遮挡，**回答内容绝不写日志**（只记录长度）；
+  /// - 用户取消 / 无界面 / 超过 [maxAsks] 次 ⇒ `{ok:false, answer:''}`，脚本需自行处理；
+  /// - 由 `.then(...)` 接续，无需轮询（isolate 事件循环负责调度）。
+  Future<Map<String, Object?>> ask(
+    String question, {
+    bool secret = false,
+    String preset = '',
+  }) async {
+    final text = question.trim();
+    if (text.isEmpty) return {'ok': false, 'answer': ''};
+    if (secret) {
+      log('询问（秘密，回答不入日志）：$text');
+    } else {
+      log('询问：$text');
+    }
+    if (_askCount >= maxAsks) {
+      log('提问次数已达上限（$maxAsks 次/每次运行），本次按取消处理');
+      return {'ok': false, 'answer': ''};
+    }
+    _askCount++;
+    final relay = askRelay;
+    if (relay == null) {
+      log('没有可用的界面来提问，已按取消处理');
+      return {'ok': false, 'answer': ''};
+    }
+    final reply = await relay(text, secret, preset);
+    final ok = reply['ok'] == true;
+    final answer = '${reply['answer'] ?? ''}';
+    if (!ok) {
+      log('用户取消了本次询问');
+      return {'ok': false, 'answer': ''};
+    }
+    if (secret) {
+      log('已回答（秘密，${answer.length} 字符，内容不入日志）');
+    } else {
+      log('回答：$answer');
+    }
+    return {'ok': true, 'answer': answer};
+  }
 
   // ---------- HTTP（简单 + 高自由度，见 HostHttp）----------
   Future<Map<String, dynamic>> httpGet(

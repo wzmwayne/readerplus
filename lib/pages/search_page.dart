@@ -10,6 +10,7 @@ import '../services/plugin/builtin_sources.dart';
 import '../services/plugin/source_service.dart';
 import '../services/plugin/source_store.dart';
 import '../services/script/script_runner.dart';
+import 'script_ask_dialog.dart';
 import 'scripts_page.dart';
 import '../state/app_state.dart';
 
@@ -50,6 +51,9 @@ class _SearchPageState extends State<SearchPage> {
 
   /// 当前搜索的取消令牌：点「取消」即强制停止所有在跑的脚本 isolate。
   ScriptCancelToken? _token;
+
+  /// 提问对话框的"中止"信号：点「取消」时触发，让打开的输入框立即关闭。
+  final ValueNotifier<int> _askAbort = ValueNotifier<int>(0);
 
   @override
   void initState() {
@@ -110,6 +114,7 @@ class _SearchPageState extends State<SearchPage> {
           query,
           onLog: _append,
           token: token,
+          onAsk: _onAsk,
         );
         for (final item in items) {
           collected.add((sourceId: entry.id, item: item));
@@ -143,8 +148,24 @@ class _SearchPageState extends State<SearchPage> {
     if (token == null) return;
     AppLog.info('source', '用户点击取消：强制停止所有运行中的脚本');
     _append('用户取消：强制停止所有运行中的脚本');
+    // 先关闭可能正打开的提问输入框（否则用户面对一个永不返回的框）
+    _askAbort.value++;
     token.cancelAll();
     setState(() {}); // 立刻刷新按钮状态
+  }
+
+  /// 脚本提问：弹对话框（秘密模式遮挡且不入日志）。
+  Future<AskReply> _onAsk(AskRequest request) async {
+    if (!mounted) return const AskReply.cancelled();
+    AppLog.info('source', '脚本提问：${request.secret ? '（秘密）' : ''}${request.question}');
+    _append('脚本提问：${request.question}');
+    final reply = await showScriptAskDialog(
+      context,
+      request,
+      abort: _askAbort,
+    );
+    _append(reply.ok ? '已回答（${reply.answer.length} 字符）' : '询问被取消');
+    return reply;
   }
 
   /// 按脚本分组（保持书源列表顺序，便于对照）。
@@ -282,6 +303,7 @@ class _SearchPageState extends State<SearchPage> {
         // 0 = 不限制（默认）；可在设置里收紧
         timeout: Duration(seconds: settings.downloadTimeoutSeconds),
         token: _token,
+        onAsk: _onAsk,
       );
       if (result.chapters.isEmpty) {
         _append('下载失败：脚本未返回章节');
