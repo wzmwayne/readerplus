@@ -7,9 +7,9 @@
 本文件的职责（与方案一致）：
   1. 读 SANDBOX_ROOT，切换工作目录到沙盒根；
   2. 把沙盒根加入 sys.path；
-  3. 把 stdout/stderr 同时写入 log.txt（宿主边跑边读，用于前台显示日志）；
+  3. 把 stdout/stderr 同时写入 output/log.txt（宿主边跑边读，用于前台显示日志）；
   4. 执行 user_script.py；
-  5. 把结果写入 manifest.json。
+  5. 把结果写入 output/manifest.json（沙盒根目录不做输出）。
 """
 
 import ast
@@ -138,7 +138,10 @@ def _read_declaration(source):
 
 
 def _write_manifest(sandbox_root, payload):
-    path = os.path.join(sandbox_root, "manifest.json")
+    """结果统一写在 output/ 下：脚本与宿主都不再往沙盒根目录写输出。"""
+    output_dir = os.path.join(sandbox_root, "output")
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, "manifest.json")
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False)
 
@@ -173,7 +176,11 @@ def main():
     os.makedirs(sandbox_root, exist_ok=True)
     os.chdir(sandbox_root)
 
-    log_file = open("log.txt", "a", encoding="utf-8", buffering=1)
+    # 结果与日志都在 output/ 下：沙盒根目录不再作为输出位置
+
+    os.makedirs("output", exist_ok=True)
+
+    log_file = open(os.path.join("output", "log.txt"), "a", encoding="utf-8", buffering=1)
     sys.stdout = _Tee(sys.stdout, log_file)
     sys.stderr = _Tee(sys.stderr, log_file)
 

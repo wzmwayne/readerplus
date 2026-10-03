@@ -42,7 +42,7 @@ class SeriousPythonRuntime implements PluginRuntime {
       if (output is String && output.trim().isNotEmpty) {
         try {
           await File(
-            '$sandboxPath/runtime_output.txt',
+            '$sandboxPath/output/runtime_output.txt',
           ).writeAsString(output, flush: true);
         } catch (_) {}
       }
@@ -83,6 +83,9 @@ class PluginRunner {
 
   PluginSandbox? _sandbox;
 
+  /// 单解释器：全局串行，避免两个运行互相 terminate。
+  static Future<void> _queue = Future<void>.value();
+
   Future<PluginRunResult> run({
     required String scriptSource,
     required Directory jobsRoot,
@@ -94,16 +97,63 @@ class PluginRunner {
     /// 成功时也保留沙盒（调用方读完产物后自行清理）。
     bool keepSandbox = false,
   }) async {
-    final sandbox = await PluginSandbox.create(jobsRoot);
-    _sandbox = sandbox;
-    AppLog.info('plugin', '执行开始：task=${params['task']} 目录=${sandbox.root.path}');
-    _logOffset = 0;
-    await sandbox.writeParams(params);
-    await sandbox.writeScript(scriptSource);
-    for (final entry in inputs.entries) {
-      await sandbox.addInput(entry.key, entry.value);
+    final previous = _queue;
+    final gate = Completer<void>();
+    _queue = gate.future;
+    await previous;
+    try {
+      return await _runLocked(
+        scriptSource: scriptSource,
+        jobsRoot: jobsRoot,
+        audit: audit,
+        params: params,
+        inputs: inputs,
+        timeout: timeout,
+        keepSandboxOnError: keepSandboxOnError,
+        keepSandbox: keepSandbox,
+      );
+    } finally {
+      if (!gate.isCompleted) gate.complete();
     }
-    _startTailing(sandbox);
+  }
+
+  Future<PluginRunResult> _runLocked({
+    required String scriptSource,
+    required Directory jobsRoot,
+    required bool audit,
+    required Map<String, dynamic> params,
+    required Map<String, List<int>> inputs,
+    required Duration timeout,
+    required bool keepSandboxOnError,
+    required bool keepSandbox,
+  }) async {
+    // 准备阶段（建沙盒、写参数/脚本/输入）也会抛异常：一律转成失败结果，绝不外抛
+    PluginSandbox? sandbox;
+    try {
+      sandbox = await PluginSandbox.create(jobsRoot);
+      _sandbox = sandbox;
+      AppLog.info(
+        'plugin',
+        '执行开始：task=${params['task']} 目录=${sandbox.root.path}',
+      );
+      _logOffset = 0;
+      await sandbox.writeParams(params);
+      await sandbox.writeScript(scriptSource);
+      for (final entry in inputs.entries) {
+        await sandbox.addInput(entry.key, entry.value);
+      }
+      _startTailing(sandbox);
+    } catch (error, stack) {
+      AppLog.error('plugin', '准备运行环境失败：$error', stack);
+      _sandbox = null;
+      return PluginRunResult(
+        ok: false,
+        outputs: const [],
+        traceback: '准备运行环境失败：$error',
+        sandboxPath: sandbox?.root.path ?? '',
+        log: '',
+      );
+    }
 
     String? failure;
     try {

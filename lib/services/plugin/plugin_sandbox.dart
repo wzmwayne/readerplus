@@ -129,8 +129,16 @@ class PluginSandbox {
   Directory get work => Directory('${root.path}/work');
   File get paramsFile => File('${root.path}/params.json');
   File get scriptFile => File('${root.path}/user_script.py');
-  File get manifestFile => File('${root.path}/manifest.json');
-  File get logFile => File('${root.path}/log.txt');
+  /// 结果清单：写在 `output/manifest.json`（根目录仅作旧运行兜底）。
+  File get manifestFile {
+    final inOutput = File('${output.path}/manifest.json');
+    return inOutput.existsSync() ? inOutput : File('${root.path}/manifest.json');
+  }
+  /// 运行日志：写在 `output/log.txt`（根目录仅作旧运行兜底）。
+  File get logFile {
+    final inOutput = File('${output.path}/log.txt');
+    return inOutput.existsSync() ? inOutput : File('${root.path}/log.txt');
+  }
 
   static Future<PluginSandbox> create(Directory parent) async {
     final id = List.generate(
@@ -209,12 +217,15 @@ class PluginSandbox {
     }
   }
 
+  /// 脚本产物（不含宿主的 log.txt / manifest.json）。
+  /// 脚本产物：`output/` 下的文件（递归），不含宿主的 log.txt / manifest.json。
   List<File> listOutputs() {
     if (!output.existsSync()) return const [];
+    const bookkeeping = {'log.txt', 'manifest.json'};
     return output
-        .listSync()
+        .listSync(recursive: true)
         .whereType<File>()
-        .where((file) => !file.path.endsWith('/'))
+        .where((file) => !bookkeeping.contains(file.uri.pathSegments.last))
         .toList();
   }
 

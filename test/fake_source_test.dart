@@ -53,7 +53,7 @@ void main() {
     if (python == null) return markTestSkipped('本机没有 python3');
     final run = await _run(python!, {'task': 'describe'});
     expect(run.code, 0, reason: run.log);
-    final manifest = _json('${run.root.path}/manifest.json');
+    final manifest = _json('${run.root.path}/output/manifest.json');
     expect(manifest['status'], 'ok');
     final script = manifest['script'] as Map<String, dynamic>;
     expect(script['kind'], 'source');
@@ -78,7 +78,7 @@ void main() {
     if (python == null) return markTestSkipped('本机没有 python3');
     final run = await _run(python!, {'task': 'search', 'query': 'fail'});
     expect(run.code, isNot(0));
-    final manifest = _json('${run.root.path}/manifest.json');
+    final manifest = _json('${run.root.path}/output/manifest.json');
     expect(manifest['status'], 'error');
     expect(manifest['traceback'], contains('测试用的搜索失败'));
     await run.root.delete(recursive: true);

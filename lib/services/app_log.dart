@@ -151,8 +151,22 @@ class AppLog {
     return buffer.toString();
   }
 
-  /// 记录一次崩溃并通知界面（尽力而为，不抛异常）。
+  static bool _reporting = false;
+
+  /// 记录一次崩溃并通知界面（尽力而为，不抛异常、可重入保护）。
   static void reportCrash(Object cause, StackTrace? stack, {String? context}) {
+    if (_reporting) return;
+    _reporting = true;
+    try {
+      _reportCrash(cause, stack, context: context);
+    } catch (_) {
+      // 上报本身出错也不能再抛
+    } finally {
+      _reporting = false;
+    }
+  }
+
+  static void _reportCrash(Object cause, StackTrace? stack, {String? context}) {
     AppLog.error('crash', cause, stack);
     final report = buildReport(error: cause, stack: stack, context: context);
     for (final listener in List.of(_crashListeners)) {

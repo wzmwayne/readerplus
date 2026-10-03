@@ -1,9 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/app_log.dart';
+
+/// 崩溃页是否正在显示（避免重复入栈与递归）。
+bool crashPageVisible = false;
 
 /// 崩溃页：显示系统环境、应用信息、崩溃问题与崩溃前日志，并可导出到下载目录。
 ///
@@ -34,6 +35,18 @@ class CrashScreen extends StatefulWidget {
 }
 
 class _CrashScreenState extends State<CrashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    crashPageVisible = true;
+  }
+
+  @override
+  void dispose() {
+    crashPageVisible = false;
+    super.dispose();
+  }
+
   late final String _report = AppLog.buildReport(
     error: widget.error,
     stack: widget.stack,
@@ -106,20 +119,26 @@ void installCrashHandlers(GlobalKey<NavigatorState> navigatorKey) {
 
   ErrorWidget.builder = (details) => CrashScreen.fromDetails(details);
 
+  var queued = false;
   AppLog.addCrashListener((report) {
-    final navigator = navigatorKey.currentState;
-    if (navigator == null) return;
-    // 已经停在崩溃页就不再叠加
-    if (navigator.canPop() == false) return;
-    unawaited(
-      navigator.push(
-        MaterialPageRoute<void>(
-          builder: (_) => CrashScreen(
-            error: report.split('## 崩溃问题').last,
-            onRetry: () => navigator.pop(),
-          ),
-        ),
-      ),
-    );
+    // 只在下一帧推入，且崩溃页已显示时不再叠加：
+    // 否则在 build/layout 期间 push 会引发二次异常，进而递归崩溃。
+    if (queued || crashPageVisible) return;
+    queued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      queued = false;
+      final navigator = navigatorKey.currentState;
+      if (navigator == null || crashPageVisible) return;
+      navigator
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => CrashScreen(
+                error: report.split('## 崩溃问题').last,
+                onRetry: () => navigator.maybePop(),
+              ),
+            ),
+          )
+          .catchError((Object _) {});
+    });
   });
 }

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../services/plugin/plugin_sandbox.dart';
+import '../services/app_log.dart';
 import '../state/app_state.dart';
 import 'plugin_run_page.dart';
 import 'source_search_page.dart';
@@ -31,6 +32,7 @@ class _PluginsPageState extends State<PluginsPage> {
   }
 
   Future<void> _reload() async {
+    if (!mounted) return;
     final scripts = await context.read<AppState>().plugins.load();
     if (!mounted) return;
     setState(() {
@@ -43,14 +45,32 @@ class _PluginsPageState extends State<PluginsPage> {
     const group = XTypeGroup(label: 'Python 脚本', extensions: ['py']);
     final file = await openFile(acceptedTypeGroups: const [group]);
     if (file == null || !mounted) return;
-    final source = await File(file.path).readAsString();
     final name = file.name.replaceAll(RegExp(r'\.py$'), '');
+    final String source;
+    try {
+      // 脚本可能是非 UTF-8 编码（GBK/Big5 等），或用 .py 命名的二进制文件
+      // 宽容解码：非法字节替换掉，避免非 UTF-8 脚本导致导入失败
+      source = utf8.decode(
+        await File(file.path).readAsBytes(),
+        allowMalformed: true,
+      );
+    } catch (error, stack) {
+      AppLog.error('plugin', '读取脚本失败：$error', stack);
+      if (mounted) _toast('读取失败：$error');
+      return;
+    }
     if (!mounted) return;
     final state = context.read<AppState>();
-    final script = await state.plugins.importSource(source, name: name);
-    await _describe(state, script);
-    await _reload();
-    if (mounted) _toast('已导入：$name');
+    try {
+      final script = await state.plugins.importSource(source, name: name);
+      await _describe(state, script);
+      if (!mounted) return;
+      await _reload();
+      if (mounted) _toast('已导入：$name');
+    } catch (error, stack) {
+      AppLog.error('plugin', '导入失败：$error', stack);
+      if (mounted) _toast('导入失败：$error');
+    }
   }
 
   /// 内置示例：让用户选一个（TXT 清洗脚本 / 本地测试书源）。
@@ -124,11 +144,13 @@ class _PluginsPageState extends State<PluginsPage> {
   Future<void> _toggle(PluginScript script, bool enabled) async {
     script.enabled = enabled;
     await context.read<AppState>().plugins.save(script);
+    if (!mounted) return;
     await _reload();
   }
 
   Future<void> _delete(PluginScript script) async {
     await context.read<AppState>().plugins.delete(script.id);
+    if (!mounted) return;
     await _reload();
   }
 
@@ -177,7 +199,7 @@ class _PluginsPageState extends State<PluginsPage> {
         ),
       ),
     );
-    await _reload();
+    if (mounted) await _reload();
   }
 
   void _toast(String message) => ScaffoldMessenger.of(
@@ -303,3 +325,4 @@ class _PluginsPageState extends State<PluginsPage> {
 /// 供其它页面复用的参数编码工具（脚本参数以 JSON 文本编辑）。
 String encodeParams(Map<String, dynamic> params) =>
     const JsonEncoder.withIndent('  ').convert(params);
+

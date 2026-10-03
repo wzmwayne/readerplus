@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../services/plugin/plugin_sandbox.dart';
+import '../services/app_log.dart';
+import '../services/plugin/plugin_runner.dart';
 import '../state/app_state.dart';
 import 'plugin_files_page.dart';
 import 'source_search_page.dart';
@@ -76,6 +78,20 @@ class _PluginRunPageState extends State<PluginRunPage> {
       _log.clear();
       _log.writeln('开始运行：${widget.script.name}');
     });
+    // 运行链路任何异常都不允许外抛（否则就是未捕获异步异常 → 崩溃）
+    try {
+      await _runInner(state, runner);
+    } catch (error, stack) {
+      AppLog.error('plugin', '运行流程异常：$error', stack);
+      if (!mounted) return;
+      setState(() {
+        _running = false;
+        _log.writeln('\n运行流程异常：$error');
+      });
+    }
+  }
+
+  Future<void> _runInner(AppState state, PluginRunner runner) async {
     _subscription = runner.logs.listen((chunk) {
       if (!mounted) return;
       setState(() => _log.write(chunk));
@@ -92,11 +108,18 @@ class _PluginRunPageState extends State<PluginRunPage> {
       ...widget.extraParams,
     };
     if (widget.inputFile != null) {
+      final input = widget.inputFile!;
+      if (!input.existsSync()) {
+        setState(() {
+          _running = false;
+          _log.writeln('输入文件已不存在：${input.path}');
+        });
+        return;
+      }
       final name =
-          params['input_file'] as String? ??
-          widget.inputFile!.uri.pathSegments.last;
+          params['input_file'] as String? ?? input.uri.pathSegments.last;
       params['input_file'] = name;
-      inputs[name] = await widget.inputFile!.readAsBytes();
+      inputs[name] = await input.readAsBytes();
     }
 
     final result = await runner.run(
