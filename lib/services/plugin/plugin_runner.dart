@@ -126,6 +126,7 @@ class SeriousPythonRuntime implements PluginRuntime {
     return false;
   }
 
+  @override
   void cancel() {
     if (_cancelled?.isCompleted == false) _cancelled!.complete();
     try {
