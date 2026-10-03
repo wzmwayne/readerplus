@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 
 /// 脚本 isolate 入口：静态/顶层函数，可跨 isolate 传递。
-typedef ScriptIsolateEntry = void Function(String source, SendPort send);
+///
+/// [job] 里包含 source / inputs / outputDir / params（全部可跨 isolate 传递）；
+/// 闭包捕获的变量不能跨 isolate，所以这些必须以数据形式随消息走。
+typedef ScriptIsolateEntry = void Function(Map<String, Object?> job, SendPort send);
 
 /// 脚本执行结果。
 class ScriptRunResult {
@@ -40,6 +44,9 @@ class ScriptRunner {
   Future<ScriptRunResult> run(
     String source, {
     Duration timeout = const Duration(seconds: 60),
+    Map<String, List<int>> inputs = const {},
+    Directory? outputDir,
+    Map<String, String> params = const {},
   }) async {
     final started = DateTime.now();
     final receive = ReceivePort();
@@ -77,10 +84,14 @@ class ScriptRunner {
 
     try {
       isolate = await Isolate.spawn<Map<String, Object?>>(_spawnEntry, {
-        'source': source,
-        'send': receive.sendPort,
-        // 静态状态不跨 isolate：必须把引擎入口随消息带过去
         'entry': entry,
+        'send': receive.sendPort,
+        'job': <String, Object?>{
+          'source': source,
+          'inputs': inputs,
+          'outputDir': outputDir?.path,
+          'params': params,
+        },
       });
     } catch (error) {
       receive.close();
@@ -117,10 +128,10 @@ class ScriptRunner {
 
   static void _spawnEntry(Map<String, Object?> args) {
     final send = args['send'] as SendPort;
-    final source = args['source'] as String;
+    final job = (args['job'] as Map).cast<String, Object?>();
     final engineEntry = args['entry'] as ScriptIsolateEntry;
     try {
-      engineEntry(source, send);
+      engineEntry(job, send);
     } catch (error, stack) {
       send.send({'ok': false, 'error': '$error\n$stack'});
     }

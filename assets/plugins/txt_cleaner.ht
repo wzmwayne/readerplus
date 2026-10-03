@@ -1,0 +1,19 @@
+// 内置示例：TXT 清洗转 EPUB
+// 能力：inputText / cleanText / splitChapters / epubBuild / saveOutput / log / result
+var text = inputText('raw.txt')
+
+// 清洗：去零宽字符与广告行（内联标志 (?m)/(?i)/(?s) 均支持）
+text = cleanText(text, [
+  ['[\\u200b\\ufeff]', ''],
+  ['(?m)^\\s*(广告|推广)[:：].*$', '']
+])
+
+var chapters = splitChapters(text, '^第[一二三四五六七八九十百千两0-9]+[章回节卷].*$')
+log("切分得到 ${chapters.length} 章")
+
+var options = {}
+options['title'] = param('title', '未命名')
+options['author'] = param('author', '佚名')
+options['chapters'] = chapters
+saveOutput('book.epub', epubBuild(options))
+result('ok')

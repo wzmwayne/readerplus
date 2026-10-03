@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
+import '../epub/epub_writer.dart';
 import '../source/host_http.dart';
+import '../txt/txt_to_epub.dart';
 
 /// 宿主暴露给脚本的能力面（白名单）。
 ///
@@ -14,11 +18,28 @@ class ScriptHost {
     required this.onLog,
     HostHttp? http,
     this.timeout = const Duration(seconds: 60),
-  }) : http = http ?? HostHttp();
+    Map<String, List<int>> inputs = const {},
+    this.outputDir,
+    Map<String, String> params = const {},
+  }) : http = http ?? HostHttp(),
+       inputs = Map.unmodifiable(inputs),
+       params = Map.unmodifiable(params);
 
   final void Function(String message) onLog;
   final HostHttp http;
   final Duration timeout;
+
+  /// 本次运行的输入文件（宿主放入，脚本只读）。
+  final Map<String, List<int>> inputs;
+
+  /// 本次运行的产物目录（脚本用它写出 EPUB 等）。
+  Directory? outputDir;
+
+  /// 本次运行的参数（如 task/query/id）。
+  final Map<String, String> params;
+
+  /// 读参数（缺省返回空串）。
+  String param(String name, [String fallback = '']) => params[name] ?? fallback;
 
   /// 脚本交回的结果（最后写入的生效）。
   Object? result;
@@ -147,6 +168,75 @@ class ScriptHost {
       Uri.parse(base).resolve(relative).toString();
 
   String urlEncode(String value) => Uri.encodeComponent(value);
+
+  // ---------- 输入 / 输出 ----------
+
+  /// 读输入文本（自动探测编码）。
+  String inputText(String name, [String encoding = 'auto']) {
+    final bytes = inputs[name] ?? (inputs.values.isEmpty ? null : inputs.values.first);
+    if (bytes == null) throw StateError('没有输入文件：$name');
+    return decodeText(bytes, encoding);
+  }
+
+  /// 读输入字节。
+  List<int> inputBytes(String name) {
+    final bytes = inputs[name] ?? (inputs.values.isEmpty ? null : inputs.values.first);
+    if (bytes == null) throw StateError('没有输入文件：$name');
+    return bytes;
+  }
+
+  /// 保存产物，返回完整路径。
+  String saveOutput(String name, List<int> bytes) {
+    final dir = outputDir;
+    if (dir == null) throw StateError('没有产物目录');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final file = File('${dir.path}/$name');
+    file.writeAsBytesSync(bytes, flush: true);
+    onLog('已写出产物：${file.path}（${bytes.length} 字节）');
+    return file.path;
+  }
+
+  // ---------- EPUB / 分章 / 清洗 ----------
+
+  /// 生成 EPUB 3 字节（严格规范，见 EpubWriter）。
+  List<int> epubBuild(Map<dynamic, dynamic> options) {
+    final writer = EpubWriter(
+      title: '${options['title'] ?? '未命名'}',
+      author: '${options['author'] ?? '佚名'}',
+      language: '${options['language'] ?? 'zh-CN'}',
+    );
+    final chapters = options['chapters'];
+    if (chapters is List) {
+      for (final chapter in chapters) {
+        final map = (chapter as Map).cast<dynamic, dynamic>();
+        writer.addChapter('${map['title'] ?? ''}', '${map['body'] ?? ''}');
+      }
+    }
+    final cover = options['cover'];
+    if (cover is List && cover.isNotEmpty) {
+      writer.setCover(
+        Uint8List.fromList(cover.cast<int>()),
+        fileName: '${options['coverName'] ?? 'cover.jpg'}',
+      );
+    }
+    return writer.build();
+  }
+
+  /// 按标题正则分章，返回 {title, body} 列表。
+  List<Map<String, String>> splitChapters(String text, [String pattern = '']) {
+    return TxtToEpub.splitChapters(
+      text,
+      pattern.isEmpty ? TxtToEpub.defaultChapterPattern : pattern,
+    ).map((c) => {'title': c.title, 'body': c.body}).toList();
+  }
+
+  /// 规则清洗：rules 形如 [[正则, 替换], ...]。
+  String cleanText(String text, List<dynamic> rules) {
+    final parsed = rules
+        .map((rule) => (rule as List).map((e) => '$e').toList())
+        .toList();
+    return TxtToEpub.applyRules(text, parsed);
+  }
 
   // ---------- 结果 ----------
   void setResult(Object? value) {

@@ -1,0 +1,29 @@
+// 内置示例：本地测试书源（假数据，不联网）
+// 能力：param / result / log
+var task = param('task', 'search')
+
+var books = [
+  {'id': '1', 'title': '夜航船（测试书）', 'author': '张岱（测试）', 'intro': '本地假数据'},
+  {'id': '2', 'title': '山中客（测试书）', 'author': '佚名', 'intro': '本地假数据'},
+  {'id': '3', 'title': '旧信笺（测试书）', 'author': '测试作者', 'intro': '无封面示例'}
+]
+
+if (task == 'search') {
+  var query = param('query', '')
+  if (query == 'fail') { throw '测试用的搜索失败（关键词 fail）' }
+  var items = []
+  for (var book in books) {
+    if (query == '' || regexp(query, book['title']) != '') { items.add(book) }
+  }
+  log("命中 ${items.length} 条")
+  var payload = {}
+  payload['items'] = items
+  result(payload)
+} else if (task == 'detail') {
+  var id = param('id', '1')
+  var payload = {'id': id, 'title': '夜航船（测试书）', 'author': '张岱（测试）', 'description': '本地假数据，用于流程测试。'}
+  result(payload)
+} else {
+  var payload = {'id': param('id', '1'), 'chapters': [{'title': '第一章', 'body': '假数据正文。'}]}
+  result(payload)
+}

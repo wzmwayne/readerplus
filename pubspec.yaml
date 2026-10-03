@@ -37,4 +37,5 @@ flutter:
   assets:
     - python/examples/txt_cleaner.py
     - python/examples/fake_source.py
+    - assets/plugins/
     - docs/插件开发指南.md

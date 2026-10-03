@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:hetu_script/hetu_script.dart';
@@ -22,8 +23,21 @@ class HetuScriptEngine {
   HetuScriptEngine._();
 
   /// 供 [ScriptRunner] 使用的 isolate 内入口（静态，可跨 isolate 传递）。
-  static void isolateEntry(String source, SendPort send) async {
-    final host = ScriptHost(onLog: (message) => send.send(message));
+  static void isolateEntry(Map<String, Object?> job, SendPort send) async {
+    final source = '${job['source'] ?? ''}';
+    final inputs = ((job['inputs'] as Map?) ?? const {})
+        .map((key, value) => MapEntry('$key', (value as List).cast<int>()));
+    final outputPath = job['outputDir']?.toString();
+    final params = ((job['params'] as Map?) ?? const {})
+        .map((key, value) => MapEntry('$key', '$value'));
+    final host = ScriptHost(
+      onLog: (message) => send.send(message),
+      inputs: inputs,
+      outputDir: (outputPath == null || outputPath.isEmpty)
+          ? null
+          : Directory(outputPath),
+      params: params,
+    );
     Hetu? hetu;
     _hetu = null;
     try {
@@ -55,7 +69,9 @@ class HetuScriptEngine {
         'httpRequest': ({positionalArgs, namedArgs}) => host
             .httpRequest(
               Map<String, dynamic>.from(
-                (positionalArgs.isEmpty ? namedArgs : positionalArgs.first)
+                _toSendable(
+                      positionalArgs.isEmpty ? namedArgs : positionalArgs.first,
+                    )
                     as Map,
               ),
             )
@@ -78,6 +94,31 @@ class HetuScriptEngine {
             host.urlJoin('${positionalArgs[0]}', '${positionalArgs[1]}'),
         'urlEncode': ({positionalArgs, namedArgs}) =>
             host.urlEncode('${positionalArgs.first}'),
+        'param': ({positionalArgs, namedArgs}) => host.param(
+          '${positionalArgs.first}',
+          positionalArgs.length > 1 ? '${positionalArgs[1]}' : '',
+        ),
+        'params': ({positionalArgs, namedArgs}) => Map<String, String>.from(host.params),
+        'inputText': ({positionalArgs, namedArgs}) => host.inputText(
+          '${positionalArgs.first}',
+          positionalArgs.length > 1 ? '${positionalArgs[1]}' : 'auto',
+        ),
+        'inputBytes': ({positionalArgs, namedArgs}) =>
+            host.inputBytes('${positionalArgs.first}'),
+        'saveOutput': ({positionalArgs, namedArgs}) => host.saveOutput(
+          '${positionalArgs[0]}',
+          (positionalArgs[1] as List).cast<int>(),
+        ),
+        'epubBuild': ({positionalArgs, namedArgs}) =>
+            host.epubBuild(_toSendable(positionalArgs.first) as Map),
+        'splitChapters': ({positionalArgs, namedArgs}) => host.splitChapters(
+          '${positionalArgs[0]}',
+          positionalArgs.length > 1 ? '${positionalArgs[1]}' : '',
+        ),
+        'cleanText': ({positionalArgs, namedArgs}) => host.cleanText(
+          '${positionalArgs[0]}',
+          _toSendable(positionalArgs[1]) as List,
+        ),
       };
       hetu = Hetu();
       _hetu = hetu;
