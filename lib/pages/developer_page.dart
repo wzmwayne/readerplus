@@ -52,10 +52,13 @@ class _DeveloperPageState extends State<DeveloperPage> {
         if (length > _tailLimitBytes) {
           final raf = source.openSync();
           raf.setPositionSync(length - _tailLimitBytes);
+          final tail = utf8.decode(
+            raf.readSync(_tailLimitBytes),
+            allowMalformed: true,
+          );
           content =
               '（文件 ${(length / 1024 / 1024).toStringAsFixed(1)}MB，'
-              '仅展示末尾 1MB）\n' +
-              utf8.decode(raf.readSync(_tailLimitBytes), allowMalformed: true);
+              '仅展示末尾 1MB）\n$tail';
           raf.closeSync();
         } else {
           content = await source.readAsString();
