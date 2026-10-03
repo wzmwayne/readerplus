@@ -99,6 +99,20 @@ class _ReaderPageState extends State<ReaderPage>
   /// 系统选择管理器报告的选中文本（供「从本段听」使用）。
   String _selectedText = '';
 
+  /// 桌面端：鼠标拖拽用于选择文字，翻页靠点击；单击稍作延迟以识别双击。
+  bool get _desktop =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS);
+  Timer? _tapDelay;
+
+  /// 选择模式：双击进入，翻页暂时屏蔽；再次双击退出并清除选中。
+  bool _selectionMode = false;
+
+  /// 递增即可重建 SelectionArea，从而清除系统选中（公开 API 无"清空"回调入口）。
+  int _selectionEpoch = 0;
+
   // 正文选择（自实现，不依赖系统选择）：段落序号 + 段内范围 + 操作条锚点
   DateTime _lastScrollSync = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -180,6 +194,7 @@ class _ReaderPageState extends State<ReaderPage>
     _slideController.dispose();
     _scrollController.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _tapDelay?.cancel();
     final tts = _ttsInstance;
     if (tts != null) {
       tts.onPageFinished = null;
@@ -486,6 +501,8 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _handleTap(TapUpDetails details, double width) {
+    // 选择模式下不翻页、不弹菜单
+    if (_selectionMode) return;
     if (_menuVisible) {
       setState(() {
         _menuVisible = false;
@@ -495,13 +512,51 @@ class _ReaderPageState extends State<ReaderPage>
       return;
     }
     final x = details.localPosition.dx;
-    if (x < width / 3) {
-      _turnBy(-1, animated: true);
-    } else if (x > width * 2 / 3) {
-      _turnBy(1, animated: true);
-    } else {
-      setState(() => _menuVisible = true);
+    final delta = x < width / 3
+        ? -1
+        : (x > width * 2 / 3
+              ? 1
+              : 0);
+    if (!_desktop) {
+      _applyTap(delta);
+      return;
     }
+    // 桌面端延迟：如果紧接着来的是双击（要选中文字），就取消这次翻页
+    _tapDelay?.cancel();
+    _tapDelay = Timer(
+      const Duration(milliseconds: 250),
+      () => _applyTap(delta),
+    );
+  }
+
+  void _applyTap(int delta) {
+    _tapDelay = null;
+    if (delta == 0) {
+      setState(() => _menuVisible = true);
+    } else {
+      _turnBy(delta, animated: true);
+    }
+  }
+
+  void _cancelPendingTap() {
+    _tapDelay?.cancel();
+    _tapDelay = null;
+  }
+
+  /// 双击：进入/退出选择模式。
+  void _toggleSelectionMode() {
+    _cancelPendingTap();
+    setState(() {
+      _selectionMode = !_selectionMode;
+      if (_selectionMode) {
+        _menuVisible = false;
+        _panel = null;
+        _tocVisible = false;
+      } else {
+        // 退出时清除全部选中
+        _selectionEpoch++;
+      }
+    });
   }
 
   void _onDragUpdate(DragUpdateDetails details, double width) {
@@ -681,6 +736,7 @@ class _ReaderPageState extends State<ReaderPage>
   /// 用系统选择管理器包裹正文：长按/双击选择、拖动调整、复制等全部走系统，
   /// 额外在菜单里追加「从本段听」。
   Widget _withSelection(Widget child) => SelectionArea(
+    key: ValueKey(_selectionEpoch),
     onSelectionChanged: (content) =>
         _selectedText = content?.plainText ?? '',
     contextMenuBuilder: (context, state) {
@@ -861,6 +917,28 @@ class _ReaderPageState extends State<ReaderPage>
                 ),
               _buildMenu(rs, state, isLandscape: isLandscape),
               if (_tocVisible) _buildToc(rs),
+              if (_selectionMode)
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  top: 8,
+                  child: IgnorePointer(
+                    child: Material(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(6),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        child: Text(
+                          '选择模式：拖动选择文字，再次双击退出并清除选中',
+                          style: TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           );
         },
@@ -875,8 +953,13 @@ class _ReaderPageState extends State<ReaderPage>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
+          onDoubleTapDown: (_) => _toggleSelectionMode(),
           child: PageView.builder(
             controller: _slideController,
+            // 桌面端或选择模式下把拖拽让给文字选择
+            physics: (_desktop || _selectionMode)
+                ? const NeverScrollableScrollPhysics()
+                : null,
             itemCount: _flat.length,
             onPageChanged: (i) {
               setState(() {
@@ -899,6 +982,7 @@ class _ReaderPageState extends State<ReaderPage>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
+          onDoubleTapDown: _desktop ? (_) => _cancelPendingTap() : null,
           child: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
             child: _withSelection(
@@ -933,8 +1017,14 @@ class _ReaderPageState extends State<ReaderPage>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
-          onHorizontalDragUpdate: (d) => _onDragUpdate(d, width),
-          onHorizontalDragEnd: (d) => _onDragEnd(d, width),
+          onDoubleTapDown: (_) => _toggleSelectionMode(),
+          // 桌面端或选择模式：横向拖拽让给文字选择（Android 平时仍是滑动翻页）
+          onHorizontalDragUpdate: (_desktop || _selectionMode)
+              ? null
+              : (d) => _onDragUpdate(d, width),
+          onHorizontalDragEnd: (_desktop || _selectionMode)
+              ? null
+              : (d) => _onDragEnd(d, width),
           child: ValueListenableBuilder<double>(
             valueListenable: _drag,
             builder: (context, drag, _) => Stack(
