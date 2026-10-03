@@ -143,7 +143,19 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: build/flet-cache
-          key: flet-dist-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-v1
+          key: flet-dist-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-v2
+      - name: 校验运行时缓存（Android）
+        run: |
+          # 缓存里若混入 0 字节/半截的 dist 压缩包，会静默产出空的 extract.zip，
+          # 表现为"APK 能装、但任何 Python 调用都秒失败并闪退"。
+          CACHE="${FLET_CACHE_DIR:-$HOME/.flet}"
+          echo "检查缓存目录：$CACHE"
+          if [ -d "$CACHE" ]; then
+            find "$CACHE" -type f -size -1M -print -delete || true
+            find "$CACHE" -type f | head -20
+          fi
+          mkdir -p "$CACHE"
+
       - name: 打包 Python 运行时（Android）
         run: bash tool/package_python.sh Android
       - name: 构建 Debug APK（仅 arm64）
@@ -188,6 +200,26 @@ jobs:
               [ -n "$BADGING" ] && echo "| ↳ | \`${BADGING}\` | |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: 校验 APK 内的 Python 运行时
+        if: ${{ inputs.build_android }}
+        run: |
+          set -e
+          APK=$(find build/app/outputs/flutter-apk -name "app-debug.apk" | head -1)
+          echo "检查 $APK"
+          unzip -l "$APK" | grep -E "lib/arm64-v8a/libpython" || {
+            echo "::error::APK 内缺少 libpython（运行时未随包分发）"; exit 1; }
+          APPZIP=$(unzip -l "$APK" | awk '/assets\/app\.zip/{print $1}')
+          EXTRACT=$(unzip -l "$APK" | awk '/assets\/extract\.zip/{print $1}')
+          echo "assets/app.zip=${APPZIP:-0} 字节，assets/extract.zip=${EXTRACT:-0} 字节"
+          if [ "${APPZIP:-0}" -lt 1000 ]; then
+            echo "::error::app.zip 过小，脚本未打包进 APK"; exit 1
+          fi
+          if [ "${EXTRACT:-0}" -lt 1000000 ]; then
+            echo "::error::extract.zip 仅 ${EXTRACT:-0} 字节（应为数 MB 的 Python 运行时）：运行时会秒失败并闪退"
+            exit 1
+          fi
+          echo "运行时资源检查通过：extract.zip=${EXTRACT} 字节" >> "$GITHUB_STEP_SUMMARY"
+
       - name: 上传 APK
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -233,7 +265,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: build/flet-cache
-          key: flet-dist-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-v1
+          key: flet-dist-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-v2
       - name: 打包 Python 运行时（Linux）
         run: bash tool/package_python.sh Linux
       - name: 构建 Debug（桌面）

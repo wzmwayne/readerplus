@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../services/plugin/plugin_sandbox.dart';
+import '../services/plugin/script_header.dart';
 import '../services/app_log.dart';
 import '../state/app_state.dart';
 import 'plugin_run_page.dart';
@@ -66,9 +67,9 @@ class _PluginsPageState extends State<PluginsPage> {
     try {
       AppLog.info('plugin', '写入脚本仓储：$name（${source.length} 字符）');
       final script = await state.plugins.importSource(source, name: name);
-      AppLog.info('plugin', '仓储写入完成，id=${script.id}；开始读取脚本声明');
-      await _describe(state, script);
-      AppLog.info('plugin', '声明处理完成，刷新列表');
+      AppLog.info('plugin', '仓储写入完成，id=${script.id}');
+      // 只解析头部注释：纯 Dart、不启动 Python，因此导入不可能因运行时崩溃
+      await _applyHeader(state, script, source);
       if (!mounted) return;
       await _reload();
       if (mounted) _toast('已导入：$name');
@@ -117,7 +118,9 @@ class _PluginsPageState extends State<PluginsPage> {
         task: PluginTask.source,
         builtin: true,
       );
-      await _describe(state, script);
+      script.capabilities = {'search', 'detail', 'download'};
+      await state.plugins.save(script);
+      if (!mounted) return;
       await _reload();
       if (mounted) _toast('已导入本地测试书源，可用 🔍 在线搜索');
       return;
@@ -141,7 +144,9 @@ class _PluginsPageState extends State<PluginsPage> {
       },
       builtin: true,
     );
-    await _describe(state, script);
+    script.capabilities = {'clean'};
+    await state.plugins.save(script);
+    if (!mounted) return;
     await _reload();
     if (mounted) _toast('已导入内置示例');
   }
@@ -157,6 +162,35 @@ class _PluginsPageState extends State<PluginsPage> {
     await context.read<AppState>().plugins.delete(script.id);
     if (!mounted) return;
     await _reload();
+  }
+
+  /// 解析脚本**头部注释**里的声明并回填类型/能力（纯 Dart，不启动 Python）。
+  Future<void> _applyHeader(
+    AppState state,
+    PluginScript script,
+    String source,
+  ) async {
+    final header = ScriptHeader.parse(source);
+    if (header == null) {
+      AppLog.info('plugin', '脚本头部没有 @readerplus 声明，保持默认设置');
+      return;
+    }
+    script
+      ..declaredId = header.id
+      ..version = header.version
+      ..capabilities = header.capabilities;
+    final declaredName = header.name;
+    if (declaredName != null && declaredName.isNotEmpty) {
+      script.name = declaredName;
+    }
+    if (header.isSource) script.task = PluginTask.source;
+    if (header.isClean) script.task = PluginTask.clean;
+    await state.plugins.save(script);
+    AppLog.info(
+      'plugin',
+      '头部声明：kind=${header.kind} id=${header.id} name=${header.name} '
+      'capabilities=${header.capabilities.join('、')}',
+    );
   }
 
   /// 读取脚本内的 SCRIPT 声明，回填类型/能力（需要已打包 Python 运行时）。
@@ -184,6 +218,14 @@ class _PluginsPageState extends State<PluginsPage> {
     } catch (_) {
       // 描述失败不影响导入；用户可稍后在插件页重新触发
     }
+  }
+
+  Future<void> _describeAppState(PluginScript script) async {
+    final state = context.read<AppState>();
+    await _describe(state, script);
+    if (!mounted) return;
+    await _reload();
+    if (mounted) _toast('声明已更新：${script.capabilities.join(' / ')}');
   }
 
   Future<void> _run(PluginScript script) async {
@@ -275,6 +317,11 @@ class _PluginsPageState extends State<PluginsPage> {
                         Switch(
                           value: script.enabled,
                           onChanged: (value) => _toggle(script, value),
+                        ),
+                        IconButton(
+                          tooltip: '读取脚本声明（会启动 Python 运行时）',
+                          icon: const Icon(Icons.badge_outlined),
+                          onPressed: () => _describeAppState(script),
                         ),
                         // 书源脚本：入口是「在线搜索」（单独运行它没有意义，缺 book_id）
                         if (script.task == PluginTask.source)
