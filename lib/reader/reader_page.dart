@@ -107,6 +107,9 @@ class _ReaderPageState extends State<ReaderPage>
       (defaultTargetPlatform == TargetPlatform.linux ||
           defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.macOS);
+
+  /// AppState 缓存（initState 里取一次）：dispose 与异步回调都不能再查 InheritedWidget。
+  late final AppState _app;
   Timer? _tapDelay;
 
   /// 选择模式：双击进入，翻页暂时屏蔽；再次双击退出并清除选中。
@@ -122,7 +125,7 @@ class _ReaderPageState extends State<ReaderPage>
     final existing = _ttsInstance;
     if (existing != null) return existing;
     final controller = widget.readAloud ?? ReadAloudController();
-    final rs = context.read<AppState>().readerSettings;
+    final rs = _app.readerSettings;
     controller
       ..voice = rs.ttsVoice
       ..rate = rs.ttsRateString;
@@ -171,6 +174,9 @@ class _ReaderPageState extends State<ReaderPage>
   @override
   void initState() {
     super.initState();
+    // 缓存 AppState：dispose 阶段不能再查 InheritedWidget（会抛
+    // "Looking up a deactivated widget's ancestor is unsafe"）。
+    _app = context.read<AppState>();
     _settle = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
@@ -226,7 +232,7 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
-  ReaderSettings get _rs => context.read<AppState>().readerSettings;
+  ReaderSettings get _rs => _app.readerSettings;
 
   _FlatPage? get _current =>
       _flat.isEmpty || _flatIndex >= _flat.length ? null : _flat[_flatIndex];
@@ -508,7 +514,10 @@ class _ReaderPageState extends State<ReaderPage>
 
   void _handleTap(TapUpDetails details, double width) {
     // 选择模式下不翻页、不弹菜单
-    if (_selectionMode) return;
+    if (_selectionMode) {
+      AppLog.info('reader', '选择模式下忽略点击');
+      return;
+    }
     if (_menuVisible) {
       setState(() {
         _menuVisible = false;
@@ -538,6 +547,7 @@ class _ReaderPageState extends State<ReaderPage>
   void _applyTap(int delta) {
     _tapDelay = null;
     if (delta == 0) {
+      AppLog.info('reader', '点击中部：打开菜单');
       setState(() => _menuVisible = true);
     } else {
       _turnBy(delta, animated: true);
@@ -605,7 +615,7 @@ class _ReaderPageState extends State<ReaderPage>
               _chapters.length)
           .clamp(0, 1)
           .toDouble();
-      await context.read<AppState>().saveProgress(
+      await _app.saveProgress(
         widget.book,
         _chapterIndex,
         line,
@@ -615,7 +625,7 @@ class _ReaderPageState extends State<ReaderPage>
       return;
     }
     final f = _current;
-    await context.read<AppState>().saveProgress(
+    await _app.saveProgress(
       widget.book,
       f?.chapter ?? _chapterIndex,
       f?.firstLine ?? 0,

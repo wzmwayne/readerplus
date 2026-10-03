@@ -26,7 +26,12 @@ class _ShelfPageState extends State<ShelfPage> {
   static const _bookTypeGroup = XTypeGroup(
     label: '电子书',
     extensions: ['txt', 'epub'],
-    mimeTypes: ['text/plain', 'application/epub+zip'],
+    // 部分文件管理器/网盘给出的 MIME 是 octet-stream，放宽以免选不到文件
+    mimeTypes: [
+      'text/plain',
+      'application/epub+zip',
+      'application/octet-stream',
+    ],
   );
 
   Future<void> _importBook() async {
@@ -34,8 +39,12 @@ class _ShelfPageState extends State<ShelfPage> {
     final state = context.read<AppState>();
     try {
       final file = await openFile(acceptedTypeGroups: const [_bookTypeGroup]);
-      if (file == null) return;
+      if (file == null) {
+        AppLog.info('shelf', '未选择文件（选择器返回空）');
+        return;
+      }
       final picked = File(file.path);
+      AppLog.info('shelf', '选择文件：${picked.path}');
       // TXT：纯 Dart 管线（编码探测 → 规则清洗 → 分章 → EPUB 3 → 入库）
       // EPUB：直接导入
       if (picked.path.toLowerCase().endsWith('.txt')) {
@@ -64,7 +73,18 @@ class _ShelfPageState extends State<ShelfPage> {
         );
         return;
       }
+      // 其它格式（EPUB 等）交给内置导入器
+      final book = await state.importBook(picked);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            book == null ? '导入失败，详见开发者页日志' : '已导入：${book.title}',
+          ),
+        ),
+      );
     } catch (e) {
+      AppLog.error('shelf', '导入失败：$e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导入失败：$e')));
       }
