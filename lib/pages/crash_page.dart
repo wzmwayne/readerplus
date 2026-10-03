@@ -77,7 +77,7 @@ class _CrashScreenState extends State<CrashScreen> {
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: SelectableText(
-                '日志文件（追加写入）：${AppLog.logPath}',
+                '日志文件（追加写入，多处同步）：\n${AppLog.logPaths.join('\n')}',
                 style: const TextStyle(fontSize: 12),
               ),
             ),

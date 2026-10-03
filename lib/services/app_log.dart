@@ -18,12 +18,16 @@ class AppLog {
   static const int maxLines = 4000;
 
   static final Queue<String> _buffer = Queue<String>();
-  static File? _file;
-  static IOSink? _sink;
+  static final List<File> _files = <File>[];
+  static final List<IOSink> _sinks = <IOSink>[];
   static bool _initialized = false;
   static final List<void Function(String report)> _crashListeners = [];
 
-  static String get logPath => _file?.path ?? '(未初始化)';
+  /// 所有日志文件路径（Android 上会同时写内部与外部应用目录，方便取日志）。
+  static List<String> get logPaths =>
+      _files.isEmpty ? ['(未初始化)'] : _files.map((f) => f.path).toList();
+
+  static String get logPath => logPaths.first;
 
   static List<String> get lines => _buffer.toList(growable: false);
 
@@ -39,17 +43,31 @@ class AppLog {
   static Future<void> init() async {
     if (_initialized) return;
     _initialized = true;
+    // 固定位置、单个文件、始终追加、不轮转、不可覆盖。
+    // Android 同时写内部私有目录与外部应用目录：
+    //   内部 /data/user/0/<包名>/files/reader/logs/app.log（一定可写，文件管理器看不到）
+    //   外部 /storage/emulated/0/Android/data/<包名>/files/reader/logs/app.log（可取走）
+    final dirs = <Directory>[];
     try {
-      // 固定位置：应用数据目录下的 logs/app.log（与 books 同级），始终追加、不轮转、不可覆盖
       final support = await getApplicationSupportDirectory();
-      final dir = Directory('${support.path}/reader/logs');
-      await dir.create(recursive: true);
-      final file = File('${dir.path}/app.log');
-      _file = file;
-      // 单个日志文件，始终追加（不轮转、不分裂）
-      _sink = file.openWrite(mode: FileMode.append);
-    } catch (error) {
-      _file = null;
+      dirs.add(Directory('${support.path}/reader/logs'));
+    } catch (_) {}
+    try {
+      final external = await getExternalStorageDirectory();
+      if (external != null) {
+        dirs.add(Directory('${external.path}/reader/logs'));
+      }
+    } catch (_) {}
+
+    for (final dir in dirs) {
+      try {
+        await dir.create(recursive: true);
+        final file = File('${dir.path}/app.log');
+        _files.add(file);
+        _sinks.add(file.openWrite(mode: FileMode.append));
+      } catch (_) {
+        // 该位置不可用时跳过，其他位置继续
+      }
     }
 
     // 框架日志（含各种 print）也写入文件
@@ -71,9 +89,11 @@ class AppLog {
       while (_buffer.length > maxLines) {
         _buffer.removeFirst();
       }
-      try {
-        _sink?.writeln(entry);
-      } catch (_) {}
+      for (final sink in _sinks) {
+        try {
+          sink.writeln(entry);
+        } catch (_) {}
+      }
     }
   }
 
@@ -93,7 +113,7 @@ class AppLog {
 
   /// 应用信息摘要。
   static String appSummary() =>
-      '版本：$appVersionLabel\n  日志文件：$logPath';
+      '版本：$appVersionLabel\n  日志文件：\n    ${logPaths.join('\n    ')}';
 
   /// 组装崩溃报告（系统环境 + 应用信息 + 崩溃问题 + 崩溃前日志）。
   static String buildReport({
@@ -146,8 +166,8 @@ class AppLog {
   @visibleForTesting
   static void resetForTest() {
     _buffer.clear();
-    _sink = null;
-    _file = null;
+    _sinks.clear();
+    _files.clear();
     _initialized = false;
     _crashListeners.clear();
   }

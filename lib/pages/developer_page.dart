@@ -40,7 +40,8 @@ class _DeveloperPageState extends State<DeveloperPage> {
             dense: true,
             title: const Text('日志文件'),
             subtitle: Text(
-              '${AppLog.logPath}\n（单个文件，自动追加；共记录 ${lines.length} 行）',
+              '${AppLog.logPaths.join('\n')}\n'
+              '（单个文件、永远追加；共记录 ${lines.length} 行）',
             ),
           ),
           const Divider(),

@@ -58,6 +58,10 @@ void main() {
       expect(report, contains('## 崩溃前日志'));
     });
 
+    test('未初始化时给出占位路径，初始化后列出全部位置', () {
+      expect(AppLog.logPaths, ['(未初始化)']);
+    });
+
     test('环境与应用摘要都有内容', () {
       expect(AppLog.environmentSummary(), contains('平台：'));
       expect(AppLog.environmentSummary(), contains('运行环境：'));
