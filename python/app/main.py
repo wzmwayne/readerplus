@@ -16,6 +16,7 @@ import ast
 import json
 import os
 import sys
+import time
 import traceback
 
 MANIFEST_OK = "ok"
@@ -168,7 +169,24 @@ def _resolve_sandbox_root():
     return ""
 
 
+def _heartbeat(stage):
+    """写心跳：宿主据此判断 Python 入口是否真的执行过。
+
+    cwd 一份（此时审计钩子尚未启用，一定写得成）＋ 拿到沙盒后沙盒里再写一份。
+    """
+    stamp = f"{time.strftime('%H:%M:%S')} pid={os.getpid()} stage={stage}"
+    for path in filter(None, [os.environ.get("READERPLUS_HEARTBEAT"), "host_boot.txt"]):
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(stamp + "\n")
+        except OSError:
+            continue
+    return stamp
+
+
 def main():
+    AppLogStage = _heartbeat("entry")  # noqa: F841 - 心跳，宿主据此判断入口是否执行
+    print(f"[host] 入口已启动（{AppLogStage}）")
     sandbox_root = _resolve_sandbox_root()
     if not sandbox_root:
         print("缺少运行目录（既没有环境变量也没有任务指针文件）", file=sys.stderr)
@@ -176,6 +194,7 @@ def main():
 
     os.makedirs(sandbox_root, exist_ok=True)
     os.chdir(sandbox_root)
+    _heartbeat("sandbox")
 
     # 结果与日志都在 output/ 下：沙盒根目录不再作为输出位置
 

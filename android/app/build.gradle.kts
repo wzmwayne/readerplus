@@ -26,6 +26,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // 部分 ROM（含 HarmonyOS）在直接从 APK 内存映射 .so 时会拒绝加载，
+    // 表现为 Python 运行时启动即 abort（Dart 层无异常、进程消失）。
+    // 强制把 .so 解包到磁盘加载，是这种情况下的标准兜底。
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "wzmwayne.reader"
