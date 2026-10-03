@@ -25,6 +25,7 @@ dependencies:
   serious_python:
     hosted: https://pub.flutter-io.cn
     version: ^5.0.0
+  hetu_script: ^0.6.4
 
 dev_dependencies:
   flutter_test:
