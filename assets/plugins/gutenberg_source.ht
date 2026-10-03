@@ -3,11 +3,11 @@
 //       的公开接口 Gutendex。不抓取任何受版权保护的内容。
 //
 // 约定回顾：
-//   - 三种任务由 param('task') 区分：search / detail / download
+//   - 两种任务由 param('task') 区分：search / download（**没有 detail**）
+//   - 搜索就要把详情与封面一起带回：id/title/author/cover/intro/description
 //   - 异步用 .then(callback)，回调必须用花括号函数体
 //   - 字符串与数字不能相加，用插值 "...${n}..."
-//   - 搜索交回 {items:[{id,title,author,cover,intro}]}，id 必填
-//   - 详情交回 {id,title,author,description,cover}
+//   - 搜索交回 {items:[{id,title,author,cover,intro,description}]}，id 必填
 //   - 下载交回 {chapters:[{title,body}]}
 
 var task = param('task', 'search')
@@ -36,26 +36,18 @@ if (task == 'search') {
       item['cover'] = formats['image/jpeg'] == null ? '' : formats['image/jpeg']
       var subjects = book['subjects']
       item['intro'] = subjects.length > 0 ? subjects[0] : ''
+      var summaries = book['summaries']
+      item['description'] = summaries.length > 0
+        ? summaries[0]
+        : (subjects.length > 0 ? subjects[0] : '')
+      item['downloadUrl'] = formats['text/plain; charset=utf-8'] == null
+        ? ''
+        : formats['text/plain; charset=utf-8']
       items.add(item)
     }
     log("命中 ${items.length} 条（共 ${data['count']} 条可搜索）")
     var payload = {}
     payload['items'] = items
-    result(payload)
-  })
-} else if (task == 'detail') {
-  var id = param('id', '')
-  httpGet(api + id).then((response) {
-    var book = JSON.parse(response['text'])
-    var formats = book['formats']
-    var summaries = book['summaries']
-    var authors = book['authors']
-    var payload = {}
-    payload['id'] = id
-    payload['title'] = book['title']
-    payload['author'] = authors.length > 0 ? authors[0]['name'] : '佚名'
-    payload['description'] = summaries.length > 0 ? summaries[0] : ''
-    payload['cover'] = formats['image/jpeg'] == null ? '' : formats['image/jpeg']
     result(payload)
   })
 } else {
@@ -75,9 +67,13 @@ if (task == 'search') {
         chapters = splitChapters(text, '^Chapter [0-9]+.*$')
       }
       log("切分得到 ${chapters.length} 章")
+      var authors = book['authors']
       var payload = {}
       payload['id'] = id
       payload['chapters'] = chapters
+      // 下载步骤可补充作者与封面（App 会把封面字节嵌入 EPUB）
+      payload['author'] = authors.length > 0 ? authors[0]['name'] : ''
+      payload['cover'] = formats['image/jpeg'] == null ? '' : formats['image/jpeg']
       result(payload)
     })
   })

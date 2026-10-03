@@ -63,6 +63,9 @@ void main() {
     expect(items.length, 3);
     expect(items.first['title'], contains('夜航船'));
     expect(result.logs.join('\n'), contains('命中 3 条'));
+    // 新契约：搜索即带回详情与封面字段（不再有独立的 detail 任务）
+    expect('${items.first['description']}', isNotEmpty);
+    expect(items.first.containsKey('cover'), isTrue);
   });
 
   test('示例二：关键词 fail 触发失败（错误路径可控）', () async {
@@ -74,15 +77,14 @@ void main() {
     expect(result.error, contains('fail'));
   });
 
-  test('示例二：详情任务返回书名与简介', () async {
+  test('示例二：下载任务返回章节', () async {
     final result = await runExample(
       'assets/plugins/fake_source.ht',
-      params: {'task': 'detail', 'id': '1'},
+      params: {'task': 'download', 'id': '1'},
     );
     expect(result.ok, isTrue, reason: result.error);
     final payload = result.result as Map;
-    expect(payload['id'], '1');
-    expect(payload['title'], contains('夜航船'));
-    expect('${payload['description']}', isNotEmpty);
+    final chapters = (payload['chapters'] as List).cast<Map>();
+    expect(chapters.first['body'], contains('假数据正文'));
   });
 }

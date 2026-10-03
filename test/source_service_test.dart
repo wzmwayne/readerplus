@@ -78,20 +78,19 @@ void main() {
     expect(items.length, 3);
     expect(items.first['title'], contains('夜航船'));
     expect(logs.join('\n'), contains('命中 3 条'), reason: '日志应实时回调');
+    // 搜索结果自带详情字段（不再有独立的"取详情"）
+    expect(items.first['description'], isNotEmpty);
+    expect(items.first.containsKey('cover'), isTrue, reason: '每条结果都应带 cover 字段');
 
-    final detail = await service.detail(entry, '1');
-    expect(detail['title'], contains('夜航船'));
-    expect(detail['description'], isNotEmpty);
-
-    final chapters = await service.downloadChapters(entry, '1');
-    expect(chapters.length, 1);
-    expect(chapters.first.body, contains('假数据正文'));
+    final download = await service.downloadChapters(entry, '1');
+    expect(download.chapters.length, 1);
+    expect(download.chapters.first.body, contains('假数据正文'));
 
     // 产物：EPUB 由 Dart 侧组装，应用自己的解析器能读回
     final epub = service.buildEpub(
       title: '假书源产物',
       author: '测试',
-      chapters: chapters,
+      chapters: download.chapters,
     );
     final book = EpubImporter.parse(epub);
     expect(book.title, '假书源产物');

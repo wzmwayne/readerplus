@@ -80,6 +80,9 @@ class PluginExecutor {
     PluginJob job, {
     /// 实时日志回调（界面边跑边显示，不显示进度条）。
     void Function(String message)? onLog,
+
+    /// 取消令牌：界面点「取消」即真取消（Isolate.kill）。
+    ScriptCancelToken? token,
   }) async {
     final runner = ScriptRunner(entry: isolateEntry, onLog: onLog);
     final run = await runner.run(
@@ -90,6 +93,7 @@ class PluginExecutor {
       outputDir: job.outputDir,
       params: job.params,
       ruleJson: job.rule,
+      token: token,
     );
     final outputs = <File>[];
     final dir = job.outputDir;

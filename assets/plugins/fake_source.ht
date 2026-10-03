@@ -1,13 +1,35 @@
 // @script kind=source name="本地测试书源（假数据）"
-// 说明：kind=source ⇒ 只出现在「书源」页；三种任务由 param('task') 区分
+// 说明：kind=source ⇒ 只出现在「书源」页；两种任务由 param('task') 区分：search / download
+// 契约：搜索**一次带回全部字段**（含封面），所以没有独立的"取详情"任务。
 // 内置示例：本地测试书源（假数据，不联网）
-// 能力：param / result / log
 var task = param('task', 'search')
 
+// cover 可为空字符串：界面会用占位封面，保证每条结果都显示封面
 var books = [
-  {'id': '1', 'title': '夜航船（测试书）', 'author': '张岱（测试）', 'intro': '本地假数据'},
-  {'id': '2', 'title': '山中客（测试书）', 'author': '佚名', 'intro': '本地假数据'},
-  {'id': '3', 'title': '旧信笺（测试书）', 'author': '测试作者', 'intro': '无封面示例'}
+  {
+    'id': '1',
+    'title': '夜航船（测试书）',
+    'author': '张岱（测试）',
+    'intro': '本地假数据',
+    'description': '本地假数据，用于流程测试：搜索即含详情，点击直接展示。',
+    'cover': ''
+  },
+  {
+    'id': '2',
+    'title': '山中客（测试书）',
+    'author': '佚名',
+    'intro': '本地假数据',
+    'description': '第二条假数据，用于验证分组与封面占位。',
+    'cover': ''
+  },
+  {
+    'id': '3',
+    'title': '旧信笺（测试书）',
+    'author': '测试作者',
+    'intro': '无封面示例',
+    'description': '无封面示例：界面应显示占位封面而不是空白。',
+    'cover': ''
+  }
 ]
 
 if (task == 'search') {
@@ -17,13 +39,9 @@ if (task == 'search') {
   for (var book in books) {
     if (query == '' || regexp(query, book['title']) != '') { items.add(book) }
   }
-  log("命中 ${items.length} 条")
+  log("命中 ${items.length} 条（每条都带详情与封面字段）")
   var payload = {}
   payload['items'] = items
-  result(payload)
-} else if (task == 'detail') {
-  var id = param('id', '1')
-  var payload = {'id': id, 'title': '夜航船（测试书）', 'author': '张岱（测试）', 'description': '本地假数据，用于流程测试。'}
   result(payload)
 } else {
   var payload = {'id': param('id', '1'), 'chapters': [{'title': '第一章', 'body': '假数据正文。'}]}

@@ -101,19 +101,14 @@ class _ReaderPageState extends State<ReaderPage>
   /// 系统选择管理器报告的选中文本（供「从本段听」使用）。
   String _selectedText = '';
 
-  /// 桌面端：鼠标拖拽用于选择文字，翻页靠点击；单击稍作延迟以识别双击。
-  bool get _desktop =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.linux ||
-          defaultTargetPlatform == TargetPlatform.windows ||
-          defaultTargetPlatform == TargetPlatform.macOS);
-
   /// AppState 缓存（initState 里取一次）：dispose 与异步回调都不能再查 InheritedWidget。
   late final AppState _app;
-  Timer? _tapDelay;
 
-  /// 选择模式：双击进入，翻页暂时屏蔽；再次双击退出并清除选中。
+  /// 选择模式：双击中部进入，翻页暂时屏蔽；选区由系统托管。
   bool _selectionMode = false;
+
+  /// 选择模式悬浮条位置（可拖动）；null 表示用默认位置。
+  Offset? _selBarPos;
 
   /// 递增即可重建 SelectionArea，从而清除系统选中（公开 API 无"清空"回调入口）。
   int _selectionEpoch = 0;
@@ -202,7 +197,6 @@ class _ReaderPageState extends State<ReaderPage>
     _slideController.dispose();
     _scrollController.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    _tapDelay?.cancel();
     final tts = _ttsInstance;
     if (tts != null) {
       tts.onPageFinished = null;
@@ -513,11 +507,8 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _handleTap(TapUpDetails details, double width) {
-    // 选择模式下不翻页、不弹菜单
-    if (_selectionMode) {
-      AppLog.info('reader', '选择模式下忽略点击');
-      return;
-    }
+    // 选择模式下不翻页、不弹菜单（选区托管给系统）
+    if (_selectionMode) return;
     if (_menuVisible) {
       setState(() {
         _menuVisible = false;
@@ -532,21 +523,8 @@ class _ReaderPageState extends State<ReaderPage>
         : (x > width * 2 / 3
               ? 1
               : 0);
-    if (!_desktop) {
-      _applyTap(delta);
-      return;
-    }
-    // 桌面端延迟：紧接着的双击用于进入选择模式，此时取消这次翻页
-    _tapDelay?.cancel();
-    _tapDelay = Timer(
-      const Duration(milliseconds: 250),
-      () => _applyTap(delta),
-    );
-  }
-
-  void _applyTap(int delta) {
-    _tapDelay = null;
     if (delta == 0) {
+      // 中部：显示顶栏与底栏
       AppLog.info('reader', '点击中部：打开菜单');
       setState(() => _menuVisible = true);
     } else {
@@ -554,25 +532,46 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
-  void _cancelPendingTap() {
-    _tapDelay?.cancel();
-    _tapDelay = null;
+  /// 双击**中部**进入选择模式；双击已在选择模式时退出并清除选中。
+  void _handleDoubleTap(TapDownDetails details, double width) {
+    final x = details.localPosition.dx;
+    final middle = x >= width / 3 && x <= width * 2 / 3;
+    if (_selectionMode) {
+      _exitSelectionMode();
+      return;
+    }
+    if (!middle) return;
+    setState(() {
+      _selectionMode = true;
+      _menuVisible = false;
+      _panel = null;
+      _tocVisible = false;
+      // 重建 SelectionArea：进入时不带任何选中
+      _selectionEpoch++;
+      _selectedText = '';
+      // 悬浮条复位到默认位置
+      _selBarPos = null;
+    });
+    AppLog.info('reader', '双击中部：进入选择模式（不自动选中，选区交给系统）');
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('进入选择模式：长按或拖动选择文字'),
+          duration: Duration(seconds: 2),
+        ),
+      );
   }
 
-  /// 双击：进入/退出选择模式。
-  void _toggleSelectionMode() {
-    _cancelPendingTap();
+  void _exitSelectionMode() {
     setState(() {
-      _selectionMode = !_selectionMode;
-      if (_selectionMode) {
-        _menuVisible = false;
-        _panel = null;
-        _tocVisible = false;
-      } else {
-        // 退出时清除全部选中
-        _selectionEpoch++;
-      }
+      _selectionMode = false;
+      // 清除系统选中（重建 SelectionArea）
+      _selectionEpoch++;
+      _selectedText = '';
     });
+    AppLog.info('reader', '退出选择模式并清除选中');
   }
 
   void _onDragUpdate(DragUpdateDetails details, double width) {
@@ -934,32 +933,88 @@ class _ReaderPageState extends State<ReaderPage>
               _buildMenu(rs, state, isLandscape: isLandscape),
               if (_tocVisible) _buildToc(rs),
               if (_selectionMode)
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  top: 8,
-                  child: IgnorePointer(
-                    child: Material(
-                      color: Colors.black.withValues(alpha: 0.7),
-                      borderRadius: BorderRadius.circular(6),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        child: Text(
-                          '选择模式：拖动选择文字，再次双击退出并清除选中',
-                          style: TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                _buildSelectionBar(constraints),
             ],
           );
         },
       ),
     );
+  }
+
+  /// 选择模式悬浮条：可拖动（手柄在左），含「取消」与「退出」。
+  ///
+  /// - 取消：清除当前选中，**留在**选择模式，便于重新选；
+  /// - 退出：离开选择模式并清除选中（双击中部同效）。
+  Widget _buildSelectionBar(BoxConstraints constraints) {
+    const barWidth = 208.0;
+    const barHeight = 48.0;
+    final defaultPos = Offset(
+      (constraints.maxWidth - barWidth) / 2,
+      constraints.maxHeight - barHeight - 32,
+    );
+    final pos = _selBarPos ?? defaultPos;
+    return Positioned(
+      left: pos.dx.clamp(4, math.max(4, constraints.maxWidth - barWidth - 4)),
+      top: pos.dy.clamp(4, math.max(4, constraints.maxHeight - barHeight - 4)),
+      child: GestureDetector(
+        onPanUpdate: (d) {
+          final current = _selBarPos ?? defaultPos;
+          setState(() {
+            _selBarPos = Offset(
+              current.dx + d.delta.dx,
+              current.dy + d.delta.dy,
+            );
+          });
+        },
+        child: Material(
+          elevation: 6,
+          color: Colors.black.withValues(alpha: 0.82),
+          borderRadius: BorderRadius.circular(24),
+          child: SizedBox(
+            width: barWidth,
+            height: barHeight,
+            child: Row(
+              children: [
+                const SizedBox(width: 6),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 2),
+                  child: Icon(
+                    Icons.drag_indicator,
+                    size: 18,
+                    color: Colors.white54,
+                  ),
+                ),
+                TextButton(
+                  onPressed: _clearSelection,
+                  child: const Text(
+                    '取消',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: _exitSelectionMode,
+                  child: const Text(
+                    '退出',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 清除系统选中但留在选择模式。
+  void _clearSelection() {
+    setState(() {
+      _selectionEpoch++;
+      _selectedText = '';
+    });
+    AppLog.info('reader', '取消选中（留在选择模式）');
   }
 
   Widget _buildContent(BoxConstraints constraints, ReaderSettings rs) {
@@ -969,7 +1024,7 @@ class _ReaderPageState extends State<ReaderPage>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
-          onDoubleTapDown: _desktop ? (_) => _toggleSelectionMode() : null,
+          onDoubleTapDown: (d) => _handleDoubleTap(d, width),
           child: PageView.builder(
             controller: _slideController,
             // 仅选择模式下把滑动让给文字选择；平时滑动翻页（含桌面）
@@ -998,7 +1053,7 @@ class _ReaderPageState extends State<ReaderPage>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
-          onDoubleTapDown: _desktop ? (_) => _cancelPendingTap() : null,
+          onDoubleTapDown: (d) => _handleDoubleTap(d, width),
           child: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
             child: _withSelection(
@@ -1033,7 +1088,7 @@ class _ReaderPageState extends State<ReaderPage>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: (d) => _handleTap(d, width),
-          onDoubleTapDown: _desktop ? (_) => _toggleSelectionMode() : null,
+          onDoubleTapDown: (d) => _handleDoubleTap(d, width),
           // 平时（含桌面）横向拖拽翻页；选择模式下让位给文字选择
           onHorizontalDragUpdate: _selectionMode
               ? null

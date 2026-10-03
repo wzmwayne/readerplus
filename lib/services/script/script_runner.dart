@@ -9,6 +9,38 @@ import 'dart:isolate';
 typedef ScriptIsolateEntry = void Function(Map<String, Object?> job, SendPort send);
 
 /// 脚本执行结果。
+/// 取消令牌：可一次取消**所有**挂在它上面的运行（用于搜索页的「取消」）。
+///
+/// 取消即 `Isolate.kill(immediate)` —— 与超时走同一条路径，是真取消，
+/// 死循环脚本也杀得掉，宿主不受影响。
+class ScriptCancelToken {
+  final List<void Function(String reason)> _killers = [];
+  bool _cancelled = false;
+
+  bool get cancelled => _cancelled;
+
+  void attach(void Function(String reason) killer) {
+    if (_cancelled) {
+      killer('已取消');
+      return;
+    }
+    _killers.add(killer);
+  }
+
+  void detach(void Function(String reason) killer) => _killers.remove(killer);
+
+  /// 取消所有在跑的脚本；后续 attach 会立即被取消。
+  void cancelAll([String reason = '用户取消：已强制停止脚本']) {
+    _cancelled = true;
+    final pending = List.of(_killers);
+    _killers.clear();
+    for (final killer in pending) {
+      killer(reason);
+    }
+    if (pending.isEmpty) _cancelled = false; // 无人在跑：保持可复用
+  }
+}
+
 class ScriptRunResult {
   const ScriptRunResult({
     required this.ok,
@@ -48,6 +80,7 @@ class ScriptRunner {
     Directory? outputDir,
     Map<String, String> params = const {},
     String? ruleJson,
+    ScriptCancelToken? token,
   }) async {
     final started = DateTime.now();
     final receive = ReceivePort();
@@ -106,7 +139,8 @@ class ScriptRunner {
       );
     }
 
-    final timer = Timer(timeout, () {
+    /// 立即终止：无论是超时还是用户点「取消」，都走同一条真取消路径。
+    void killNow(String reason) {
       isolate?.kill(priority: Isolate.immediate);
       isolate = null;
       try {
@@ -115,16 +149,24 @@ class ScriptRunner {
       finish(
         ScriptRunResult(
           ok: false,
-          error: '执行超时（${timeout.inSeconds}s），已强制终止',
+          error: reason,
           logs: logs,
           elapsed: DateTime.now().difference(started),
           cancelled: true,
         ),
       );
-    });
+    }
+
+    token?.attach(killNow);
+
+    final timer = Timer(
+      timeout,
+      () => killNow('执行超时（${timeout.inSeconds}s），已强制终止'),
+    );
 
     final result = await done.future;
     timer.cancel();
+    token?.detach(killNow);
     return result;
   }
 
