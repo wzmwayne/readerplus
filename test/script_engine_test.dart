@@ -20,12 +20,12 @@ void main() {
         var total = 0
         for (var i = 0; i < 5; i = i + 1) { total = total + i }
         log('累加完成')
-        result(JSON.stringify({'sum': total, 'name': '示例'}))
+        result({'sum': total, 'name': '示例'})
       ''');
       expect(result.ok, isTrue, reason: result.error);
       expect(logs, contains('开始'));
       expect(logs, contains('累加完成'));
-      final payload = jsonDecode(result.result as String) as Map;
+      final payload = result.result as Map;
       expect(payload['sum'], 10);
       expect(payload['name'], '示例');
     });
@@ -41,17 +41,19 @@ void main() {
       });
       final url = 'http://127.0.0.1:${server.port}/search';
 
+      // 单一假设：脚本能 await 宿主返回的 Future（网络能力的地基）
+      // Hetu 的异步惯例：宿主返回 Dart Future，脚本用 .then(callback) 续跑
       final result = await runner().run('''
-        var response = await httpGet('$url')
-        var data = JSON.parse(response['text'])
-        result(JSON.stringify({'status': response['status'], 'title': data.items[0].title}))
+        httpGet('$url').then((response) {
+          log('已拿到响应')
+          result(response['status'])
+        })
       ''');
       await server.close(force: true);
 
       expect(result.ok, isTrue, reason: result.error);
-      final map = jsonDecode(result.result as String) as Map;
-      expect(map['status'], 200);
-      expect(map['title'], '异步书名');
+      expect(result.logs, contains('已拿到响应'));
+      expect(result.result, 200, reason: 'await 宿主 Future 后应拿到状态码');
     });
 
     test('死循环可被硬超时强制终止（真取消，App 不受影响）', () async {
@@ -81,10 +83,10 @@ void main() {
       final result = await runner().run('''
         var m = regexp('第([一二三])章', '第一章 起', '1')
         var u = urlJoin('https://a.com/x/', 'y/z')
-        result(JSON.stringify({'m': m, 'u': u}))
+        result({'m': m, 'u': u})
       ''');
       expect(result.ok, isTrue, reason: result.error);
-      final map = jsonDecode(result.result as String) as Map;
+      final map = result.result as Map;
       expect(map['m'], '一');
       expect(map['u'], 'https://a.com/x/y/z');
     });

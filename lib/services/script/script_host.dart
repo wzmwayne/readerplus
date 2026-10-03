@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import '../source/host_http.dart';
@@ -21,6 +22,15 @@ class ScriptHost {
 
   /// 脚本交回的结果（最后写入的生效）。
   Object? result;
+
+  /// 结果到达通知：`.then(...)` 这类异步回填也能被引擎等到。
+  final Completer<Object?> resultReady = Completer<Object?>();
+
+  /// 等待脚本交回结果（超时由调用方控制）。
+  Future<Object?> waitResult() async {
+    if (result != null) return result;
+    return resultReady.future;
+  }
 
   // ---------- 日志 ----------
   void log(Object? message) => onLog('${message ?? ''}');
@@ -139,5 +149,8 @@ class ScriptHost {
   String urlEncode(String value) => Uri.encodeComponent(value);
 
   // ---------- 结果 ----------
-  void setResult(Object? value) => result = value;
+  void setResult(Object? value) {
+    result = value;
+    if (!resultReady.isCompleted) resultReady.complete(value);
+  }
 }
