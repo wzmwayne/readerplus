@@ -80,6 +80,8 @@ void main() {
     if (jobs.existsSync()) await jobs.delete(recursive: true);
   });
 
+  _mergeTests();
+
   test('搜索：解析 result.json 的条目并忽略无 id 项', () async {
     final items = await service.search(script: script, query: '爱丽丝', page: 2);
     expect(runtime.tasks, ['search']);
@@ -113,5 +115,42 @@ void main() {
       service.search(script: script, query: 'empty'),
       throwsA(isA<StateError>()),
     );
+  });
+}
+
+void _mergeTests() {
+  group('多书源聚合', () {
+    const a = SourceItem(id: '1', title: '甲');
+    const b = SourceItem(id: '1', title: '重复 id 不同来源');
+    const c = SourceItem(id: '2', title: '乙');
+
+    test('保留来源标签并按来源+id 去重', () {
+      final merged = mergeSourceResults({
+        's1': (name: '书源一', items: [a, c]),
+        's2': (name: '书源二', items: [b]),
+      });
+      expect(merged.length, 3);
+      expect(merged.map((e) => e.sourceName).toList(), ['书源一', '书源一', '书源二']);
+      expect(merged.first.item.title, '甲');
+    });
+
+    test('全部成功才允许切换结果页', () {
+      expect(allSourcesOk({'s1': null, 's2': null}), isTrue);
+      expect(allSourcesOk({'s1': null, 's2': '失败'}), isFalse);
+      expect(allSourcesOk({}), isFalse);
+    });
+
+    test('搜索能力判定', () {
+      final clean = PluginScript(id: 'c', name: 'c', source: '', task: PluginTask.clean);
+      final source = PluginScript(id: 's', name: 's', source: '', task: PluginTask.source);
+      source.capabilities = {'search', 'download'};
+      final noCap = PluginScript(id: 'n', name: 'n', source: '', task: PluginTask.source);
+      final noSearch = PluginScript(id: 'x', name: 'x', source: '', task: PluginTask.source);
+      noSearch.capabilities = {'download'};
+      expect(canSearch(clean), isFalse);
+      expect(canSearch(source), isTrue);
+      expect(canSearch(noCap), isTrue, reason: '未声明能力时按可搜索处理');
+      expect(canSearch(noSearch), isFalse);
+    });
   });
 }

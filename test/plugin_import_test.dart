@@ -188,4 +188,48 @@ void main() {
     expect(manifest.traceback, contains('manifest'));
     await root.delete(recursive: true);
   });
+
+  test('以 .pyc 方式运行入口脚本（移动端就是这样）也能跑通', () async {
+    if (python == null) {
+      markTestSkipped('本机没有 python3');
+      return;
+    }
+    final sandbox = await _sandboxWith(
+      python: python!,
+      txt: File('test/fixtures/sample_book.txt'),
+      title: 'pyc 测试',
+    );
+    // 按打包布局准备应用目录，并编译为 .pyc（移动端不带 .py 源码）
+    final appDir = Directory('${sandbox.root.path}/app')..createSync();
+    for (final file in Directory('python/app').listSync().whereType<File>()) {
+      file.copySync('${appDir.path}/${file.uri.pathSegments.last}');
+    }
+    final compile = await Process.run(python!, [
+      '-m',
+      'compileall',
+      '-q',
+      appDir.path,
+    ]);
+    expect(compile.exitCode, 0, reason: '${compile.stderr}');
+    final cached = Directory('${appDir.path}/__pycache__')
+        .listSync()
+        .whereType<File>()
+        .firstWhere((file) => file.uri.pathSegments.last.startsWith('main.'));
+    cached.copySync('${appDir.path}/main.pyc');
+
+    final result = await Process.run(python!, ['${appDir.path}/main.pyc'], environment: {
+      'SANDBOX_ROOT': sandbox.root.path,
+      'READERPLUS_SANDBOX_AUDIT': '1',
+    }, includeParentEnvironment: true);
+    final log = await sandbox.readLog();
+    expect(result.exitCode, 0, reason: 'stderr=${result.stderr}\nlog=$log');
+    final manifest = await sandbox.readManifest();
+    expect(manifest.ok, isTrue, reason: log);
+    final book = EpubImporter.parse(
+      await File('${sandbox.output.path}/book.epub').readAsBytes(),
+    );
+    expect(book.title, 'pyc 测试');
+    expect(book.chapters.length, 3);
+    await Directory(sandbox.root.parent.path).delete(recursive: true);
+  }, timeout: const Timeout(Duration(seconds: 120)));
 }

@@ -201,3 +201,47 @@ class BookSourceService {
     throw StateError('脚本没有输出 result.json');
   }
 }
+
+/// 带来源标签的搜索结果项（多书源聚合时用）。
+class SourcedItem {
+  const SourcedItem({
+    required this.sourceId,
+    required this.sourceName,
+    required this.item,
+  });
+
+  final String sourceId;
+  final String sourceName;
+  final SourceItem item;
+}
+
+/// 汇总多个书源的搜索结果：附带来源名，按「来源 + id」去重并保持顺序。
+List<SourcedItem> mergeSourceResults(
+  Map<String, ({String name, List<SourceItem> items})> bySource,
+) {
+  final merged = <SourcedItem>[];
+  final seen = <String>{};
+  for (final entry in bySource.entries) {
+    for (final item in entry.value.items) {
+      final key = '${entry.key}:${item.id}';
+      if (!seen.add(key)) continue;
+      merged.add(
+        SourcedItem(
+          sourceId: entry.key,
+          sourceName: entry.value.name,
+          item: item,
+        ),
+      );
+    }
+  }
+  return merged;
+}
+
+/// 是否所有书源都成功（全部成功才切到结果页）。
+bool allSourcesOk(Map<String, String?> errors) =>
+    errors.isNotEmpty && errors.values.every((error) => error == null);
+
+/// 具备搜索能力的书源：task=source 且（未声明能力或声明了 search）。
+bool canSearch(PluginScript script) =>
+    script.task == PluginTask.source &&
+    (script.capabilities.isEmpty || script.capabilities.contains('search'));

@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../services/plugin/plugin_sandbox.dart';
 import '../state/app_state.dart';
 import 'plugin_files_page.dart';
+import 'source_search_page.dart';
 
 /// 运行一个脚本：前台显示日志（不显示进度），可随时取消，成功后导入产物。
 class PluginRunPage extends StatefulWidget {
@@ -161,6 +162,17 @@ class _PluginRunPageState extends State<PluginRunPage> {
               onPressed: _run,
               icon: const Icon(Icons.refresh),
               label: const Text('重跑'),
+            ),
+          // 书源脚本：从下载页也能直接发起在线搜索
+          if (widget.script.task == PluginTask.source)
+            IconButton(
+              tooltip: '在线搜索',
+              icon: const Icon(Icons.search),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SourceSearchPage(script: widget.script),
+                ),
+              ),
             ),
           if (result?.sandboxPath.isNotEmpty == true)
             IconButton(

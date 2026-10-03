@@ -37,20 +37,51 @@ class _ShelfPageState extends State<ShelfPage> {
       // TXT 交给内置脚本清洗转 EPUB；EPUB 直接导入
       if (picked.path.toLowerCase().endsWith('.txt')) {
         final scripts = await state.plugins.load();
-        final builtin = scripts
-            .where(
-              (script) =>
-                  script.builtin &&
-                  script.enabled &&
-                  script.task == PluginTask.clean,
-            )
+        // 所有可用的清理脚本都列出来，由用户选择
+        final cleaners = scripts
+            .where((script) => script.enabled && script.task == PluginTask.clean)
             .toList();
-        if (builtin.isNotEmpty) {
+        if (cleaners.isNotEmpty) {
           if (!mounted) return;
+          final chosen = await showDialog<PluginScript>(
+            context: context,
+            builder: (context) => SimpleDialog(
+              title: const Text('用哪个脚本导入？'),
+              children: [
+                for (final script in cleaners)
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.of(context).pop(script),
+                    child: ListTile(
+                      leading: Icon(
+                        script.builtin
+                            ? Icons.auto_awesome_outlined
+                            : Icons.extension_outlined,
+                      ),
+                      title: Text(script.name),
+                      subtitle: Text(
+                        script.description.isEmpty
+                            ? (script.capabilities.isEmpty
+                                  ? '未声明能力'
+                                  : script.capabilities.join(' / '))
+                            : script.description,
+                      ),
+                    ),
+                  ),
+                SimpleDialogOption(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const ListTile(
+                    leading: Icon(Icons.close),
+                    title: Text('取消'),
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (chosen == null || !mounted) return;
           await Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => PluginRunPage(
-                script: builtin.first,
+                script: chosen,
                 inputFile: picked,
                 audit: state.settings.scriptSandboxAudit,
               ),

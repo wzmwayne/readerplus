@@ -247,24 +247,24 @@ class _PluginsPageState extends State<PluginsPage> {
                           value: script.enabled,
                           onChanged: (value) => _toggle(script, value),
                         ),
-                        if (script.task == PluginTask.source &&
-                            (script.capabilities.isEmpty ||
-                                script.capabilities.contains('search')))
-                          IconButton(
-                            tooltip: '在线搜索',
-                            icon: const Icon(Icons.search),
+                        // 书源脚本：入口是「在线搜索」（单独运行它没有意义，缺 book_id）
+                        if (script.task == PluginTask.source)
+                          FilledButton.tonalIcon(
                             onPressed: () => Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) =>
                                     SourceSearchPage(script: script),
                               ),
                             ),
+                            icon: const Icon(Icons.search, size: 18),
+                            label: const Text('在线搜索'),
+                          )
+                        else
+                          IconButton(
+                            tooltip: '运行',
+                            icon: const Icon(Icons.play_arrow),
+                            onPressed: () => _run(script),
                           ),
-                        IconButton(
-                          tooltip: '运行',
-                          icon: const Icon(Icons.play_arrow),
-                          onPressed: () => _run(script),
-                        ),
                         IconButton(
                           tooltip: '删除',
                           icon: const Icon(Icons.delete_outline),

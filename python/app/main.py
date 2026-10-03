@@ -48,16 +48,38 @@ def _load_params(sandbox_root):
         return json.load(handle)
 
 
+def _app_dir():
+    """入口脚本所在目录。
+
+    注意：以 `.pyc` 方式运行时（移动端就是这样）Python 不会定义 `__file__`，
+    因此这里按 sys.argv[0] → sys.path[0] → 当前目录依次回退。
+    """
+    candidates = []
+    if sys.argv and sys.argv[0]:
+        candidates.append(sys.argv[0])
+    if sys.path and sys.path[0]:
+        candidates.append(sys.path[0])
+    candidates.append(os.getcwd())
+    for candidate in candidates:
+        try:
+            directory = os.path.dirname(os.path.abspath(candidate))
+            if directory and os.path.isdir(directory):
+                return directory
+        except Exception:  # noqa: BLE001 - 任何异常都退回下一个候选
+            continue
+    return os.getcwd()
+
+
 def _install_audit_hook(sandbox_root):
     """可选审计钩子：阻止脚本读写沙盒外的路径（网络不受影响）。"""
     root = os.path.realpath(sandbox_root)
-    # 可信的运行时目录：解释器自身、内置库所在的应用目录、启动时的 sys.path 项
+    # 可信的运行时目录：解释器自身、应用目录（内置库所在处）、启动时的 sys.path 项
     trusted = {
         os.path.realpath(entry)
         for entry in sys.path
         if entry and os.path.isabs(entry) and os.path.isdir(entry)
     }
-    trusted.add(os.path.realpath(os.path.dirname(os.path.abspath(__file__))))
+    trusted.add(os.path.realpath(_app_dir()))
     trusted.add(os.path.realpath(os.getcwd()))
 
     def _resolve(path):
@@ -162,7 +184,10 @@ def main():
     # 脚本无法通过参数或环境变量得知是否开启，避免恶意脚本据此隐藏行为。
     audit_flag = os.environ.pop("READERPLUS_SANDBOX_AUDIT", "")
     if audit_flag == "1":
-        _install_audit_hook(sandbox_root)
+        try:
+            _install_audit_hook(sandbox_root)
+        except Exception as error:  # noqa: BLE001 - 审计不可用时仍要让脚本跑完
+            print(f"[host] 审计钩子安装失败（继续运行）：{error}", file=sys.stderr)
 
     if sandbox_root not in sys.path:
         sys.path.insert(0, sandbox_root)
