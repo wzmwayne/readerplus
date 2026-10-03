@@ -59,7 +59,7 @@ class AppLog {
       if (message != null) write('fw', message);
     };
 
-    info('app', '启动：${appVersionLabel}');
+    info('app', '启动：$appVersionLabel');
     info('app', '环境：${environmentSummary()}');
   }
 
@@ -93,7 +93,7 @@ class AppLog {
 
   /// 应用信息摘要。
   static String appSummary() =>
-      '版本：${appVersionLabel}\n  日志文件：$logPath';
+      '版本：$appVersionLabel\n  日志文件：$logPath';
 
   /// 组装崩溃报告（系统环境 + 应用信息 + 崩溃问题 + 崩溃前日志）。
   static String buildReport({
