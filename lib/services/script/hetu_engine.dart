@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:isolate';
 
 import 'package:hetu_script/hetu_script.dart';
@@ -102,7 +101,7 @@ class HetuScriptEngine {
             const Duration(seconds: 120),
           );
         } catch (_) {
-          result ??= evaluated;
+          // 超时或取消：保留 eval 的返回值
         }
       }
       send.send({
@@ -148,7 +147,7 @@ class HetuScriptEngine {
       // 递归转换（HTStruct.toJSON() 遇到嵌套结构体可能抛异常，故自己走 keys/values）
       final map = <String, Object?>{};
       for (final key in value.keys) {
-        map['$key'] = _toSendable(value[key]);
+        map[key] = _toSendable(value[key]);
       }
       return map;
     }
