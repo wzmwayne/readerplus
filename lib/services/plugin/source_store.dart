@@ -3,24 +3,30 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
-/// 书源种类：脚本（Hetu）或声明式规则（JSON）。
-enum SourceKind { script, rule }
+import 'script_meta.dart';
+
+/// 条目格式：脚本（Hetu）或声明式规则（JSON）。
+enum SourceFormat { script, rule }
 
 /// 一个书源条目。
 class SourceEntry {
   const SourceEntry({
     required this.id,
     required this.name,
-    required this.kind,
+    required this.format,
     required this.body,
     this.author = '',
     this.description = '',
     this.enabled = true,
-  });
+    ScriptKind? kind,
+  }) : kind = kind ?? ScriptKind.source;
 
   final String id;
   final String name;
-  final SourceKind kind;
+  final SourceFormat format;
+
+  /// 脚本类型（书源 / 清洗 / 其他）；规则固定为书源。
+  final ScriptKind kind;
 
   /// 脚本源码或规则 JSON。
   final String body;
@@ -28,8 +34,11 @@ class SourceEntry {
   final String description;
   final bool enabled;
 
+  /// 是否为书源（只有 kind=source 才会出现在书源页，避免脚本被错用）。
+  bool get isSource => kind == ScriptKind.source;
+
   Set<String> get capabilities {
-    if (kind == SourceKind.script) {
+    if (format == SourceFormat.script) {
       // 脚本自行按 task 分发，三种能力都可尝试
       return const {'search', 'detail', 'download'};
     }
@@ -49,6 +58,7 @@ class SourceEntry {
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
+    'format': format.name,
     'kind': kind.name,
     'body': body,
     'author': author,
@@ -56,15 +66,26 @@ class SourceEntry {
     'enabled': enabled,
   };
 
-  static SourceEntry fromJson(Map<String, dynamic> json) => SourceEntry(
-    id: '${json['id']}',
-    name: '${json['name'] ?? ''}',
-    kind: '${json['kind']}' == 'rule' ? SourceKind.rule : SourceKind.script,
-    body: '${json['body'] ?? ''}',
-    author: '${json['author'] ?? ''}',
-    description: '${json['description'] ?? ''}',
-    enabled: json['enabled'] != false,
-  );
+  static SourceEntry fromJson(Map<String, dynamic> json) {
+    final body = '${json['body'] ?? ''}';
+    final format = '${json['format'] ?? json['kind']}' == 'rule'
+        ? SourceFormat.rule
+        : SourceFormat.script;
+    // 类型以脚本内声明为准（编辑/手改后自动同步），规则固定为书源
+    final declared = format == SourceFormat.script
+        ? ScriptMeta.parse(body)
+        : const ScriptMeta(kind: ScriptKind.source);
+    return SourceEntry(
+      id: '${json['id']}',
+      name: '${json['name'] ?? ''}',
+      format: format,
+      body: body,
+      author: '${json['author'] ?? ''}',
+      description: '${json['description'] ?? ''}',
+      enabled: json['enabled'] != false,
+      kind: format == SourceFormat.rule ? ScriptKind.source : declared.kind,
+    );
+  }
 }
 
 /// 书源仓储：单个 JSON 文件，位置固定、可读可改。

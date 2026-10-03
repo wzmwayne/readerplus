@@ -1,3 +1,5 @@
+// @script kind=source name="本地测试书源（假数据）" capabilities=search,detail,download
+// 说明：kind=source ⇒ 只出现在「书源」页；三种任务由 param('task') 区分
 // 内置示例：本地测试书源（假数据，不联网）
 // 能力：param / result / log
 var task = param('task', 'search')

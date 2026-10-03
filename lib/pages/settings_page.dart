@@ -8,6 +8,7 @@ import '../app_info.dart';
 import '../models/app_settings.dart';
 import '../state/app_state.dart';
 import 'developer_page.dart';
+import 'scripts_page.dart';
 import 'settings_read_aloud_section.dart';
 import '../theme/app_theme.dart';
 import 'webdav_page.dart';
@@ -176,6 +177,14 @@ class SettingsPage extends StatelessWidget {
             subtitle: Text(
               '部分设计思路来自开源项目 Legado（开源阅读）：排版预设数值、主题配色、'
               '页眉页脚与翻页方式等交互设计；品牌色取自 wzml.cc.cd/logo 的前景颜色 #76DFA1',
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.terminal_outlined),
+            title: const Text('脚本管理'),
+            subtitle: const Text('按类型查看 / 编辑 / 删除 / 添加脚本'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ScriptsPage()),
             ),
           ),
           const ListTile(

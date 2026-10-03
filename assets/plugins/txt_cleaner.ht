@@ -1,3 +1,5 @@
+// @script kind=clean name="TXT 清洗转 EPUB" capabilities=clean
+// 说明：kind=clean ⇒ 出现在「脚本管理」的清洗分类，不会出现在书源页
 // 内置示例：TXT 清洗转 EPUB
 // 能力：inputText / cleanText / splitChapters / epubBuild / saveOutput / log / result
 var text = inputText('raw.txt')

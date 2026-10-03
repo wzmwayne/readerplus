@@ -9,6 +9,16 @@ import 'source_store.dart';
 ///
 /// 两者都经 [PluginExecutor]（同一个 isolate 执行器、同一套宿主能力），
 /// 因此崩溃隔离、硬超时真取消、实时日志对两种书源完全一致。
+/// 书源执行失败（错误信息保持单层前缀，便于界面直接展示）。
+class SourceFailure implements Exception {
+  const SourceFailure(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class SourceService {
   const SourceService({this.executor = const PluginExecutor()});
 
@@ -19,7 +29,7 @@ class SourceService {
     required Map<String, String> params,
     Directory? outputDir,
     Duration timeout = const Duration(seconds: 60),
-  }) => entry.kind == SourceKind.rule
+  }) => entry.format == SourceFormat.rule
       ? PluginJob.rule(
           ruleJson: entry.body,
           params: params,
@@ -55,7 +65,7 @@ class SourceService {
       'query': query,
       'page': '$page',
     }, onLog: onLog);
-    if (!result.ok) throw StateError(result.error.isEmpty ? '搜索失败' : result.error);
+    if (!result.ok) throw SourceFailure(result.error.isEmpty ? '搜索失败' : result.error);
     final payload = result.result;
     if (payload is! Map) return const [];
     final items = payload['items'];
@@ -77,7 +87,7 @@ class SourceService {
     void Function(String message)? onLog,
   }) async {
     final result = await _run(entry, {'task': 'detail', 'id': id}, onLog: onLog);
-    if (!result.ok) throw StateError(result.error.isEmpty ? '取详情失败' : result.error);
+    if (!result.ok) throw SourceFailure(result.error.isEmpty ? '取详情失败' : result.error);
     final payload = result.result;
     if (payload is! Map) return {'id': id};
     return payload.map(
@@ -96,7 +106,7 @@ class SourceService {
       'task': 'download',
       'id': id,
     }, onLog: onLog, timeout: timeout);
-    if (!result.ok) throw StateError(result.error.isEmpty ? '下载失败' : result.error);
+    if (!result.ok) throw SourceFailure(result.error.isEmpty ? '下载失败' : result.error);
     final payload = result.result;
     final chapters = <({String title, String body})>[];
     if (payload is Map) {

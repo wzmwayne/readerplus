@@ -310,11 +310,14 @@ class _ReaderPageState extends State<ReaderPage>
     final footerHeight = _tipBarHeight(settings, isHeader: false);
     final maxWidth =
         _viewport.width - settings.paddingLeft - settings.paddingRight;
+    // 减 1 像素安全余量：文字排版的行高累加会出现亚像素（实测 0.76px）
+    // 溢出，留出余量即可彻底消除 RenderFlex overflow。
     final maxHeight = _viewport.height -
         settings.paddingTop -
         settings.paddingBottom -
         headerHeight -
-        footerHeight;
+        footerHeight -
+        1;
     final pages = ChapterPaginator.paginate(
       text: _chapterTextOf(index),
       style: _textStyle(settings),

@@ -12,15 +12,13 @@ import '../services/plugin/source_store.dart';
 import '../state/app_state.dart';
 
 /// 内置书源（随应用打包，首次进入自动写入仓储）。
-const _builtinSources = <String, ({String name, SourceKind kind, String asset})>{
-  'builtin:txt-cleaner': (
-    name: '内置：TXT 清洗转 EPUB',
-    kind: SourceKind.script,
-    asset: 'assets/plugins/txt_cleaner.ht',
-  ),
+///
+/// 注意：清洗类脚本（assets/plugins/txt_cleaner.ht）不是书源，不在此列出；
+/// 书架的 TXT 导入已由内置的纯 Dart 管线承担。
+const _builtinSources = <String, ({String name, SourceFormat format, String asset})>{
   'builtin:fake-source': (
     name: '内置：本地测试书源',
-    kind: SourceKind.script,
+    format: SourceFormat.script,
     asset: 'assets/plugins/fake_source.ht',
   ),
 };
@@ -78,21 +76,22 @@ class _SourcesTabState extends State<SourcesTab> {
           SourceEntry(
             id: entry.key,
             name: entry.value.name,
-            kind: entry.value.kind,
+            format: SourceFormat.script,
             body: body,
             description: '随应用打包的示例书源',
           ),
         );
       }
-      AppLog.info('source', '已写入 ${entries.length} 个内置书源');
+      AppLog.info('source', '已写入 ${entries.length} 条内置条目');
     }
     if (!mounted) return;
+    final onlySources = entries.where((e) => e.isSource).toList();
     setState(() {
-      _sources = entries;
+      _sources = onlySources;
       _loading = false;
       _selected
         ..clear()
-        ..addAll(entries.where((e) => e.enabled).map((e) => e.id));
+        ..addAll(onlySources.where((e) => e.enabled).map((e) => e.id));
     });
   }
 
@@ -102,18 +101,18 @@ class _SourcesTabState extends State<SourcesTab> {
     if (file == null || !mounted) return;
     final body = await File(file.path).readAsString();
     final name = file.name.replaceAll(RegExp(r'\.(ht|json)$'), '');
-    final kind = file.name.toLowerCase().endsWith('.json')
-        ? SourceKind.rule
-        : SourceKind.script;
+    final format = file.name.toLowerCase().endsWith('.json')
+        ? SourceFormat.rule
+        : SourceFormat.script;
     await _store.upsert(
       SourceEntry(
         id: 'user:${DateTime.now().millisecondsSinceEpoch}',
         name: name,
-        kind: kind,
+        format: format,
         body: body,
       ),
     );
-    AppLog.info('source', '导入书源：$name（${kind.name}）');
+    AppLog.info('source', '导入书源：$name（${format.name}）');
     await _load();
   }
 
@@ -323,7 +322,8 @@ class _SourcesTabState extends State<SourcesTab> {
                           }),
                     title: Text(entry.name),
                     subtitle: Text(
-                      '${entry.kind == SourceKind.script ? '脚本' : '规则'}'
+                      '${entry.format == SourceFormat.script ? '脚本' : '规则'}'
+                      ' · ${entry.kind.label}'
                       ' · ${entry.capabilities.join('/')}',
                     ),
                     secondary: IconButton(

@@ -105,6 +105,13 @@ class _CrashScreenState extends State<CrashScreen> {
 void installCrashHandlers(GlobalKey<NavigatorState> navigatorKey) {
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
+    final message = details.exception.toString();
+    // 布局溢出只是渲染警告（release 下同样会发生），
+    // 不该把用户扔进崩溃页、也不该生成崩溃报告。
+    if (message.contains('overflowed by')) {
+      AppLog.info('layout', '布局溢出（已忽略）：$message');
+      return;
+    }
     AppLog.reportCrash(
       details.exception,
       details.stack,
