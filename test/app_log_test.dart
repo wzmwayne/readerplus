@@ -60,7 +60,7 @@ void main() {
 
     test('环境与应用摘要都有内容', () {
       expect(AppLog.environmentSummary(), contains('平台：'));
-      expect(AppLog.environmentSummary(), contains('Dart：'));
+      expect(AppLog.environmentSummary(), contains('运行环境：'));
       expect(AppLog.appSummary(), contains('版本：'));
     });
   });

@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_info.dart';
-import '../services/app_log.dart';
 import '../models/app_settings.dart';
 import '../state/app_state.dart';
+import 'developer_page.dart';
 import 'plugins_page.dart';
 import 'settings_read_aloud_section.dart';
 import '../theme/app_theme.dart';
@@ -173,10 +173,7 @@ class SettingsPage extends StatelessWidget {
             title: Text('阅读 readerplus'),
             subtitle: Text('多平台小说阅读器：Android 与 Linux 桌面共用一套自适应界面'),
           ),
-          ListTile(
-            title: const Text('版本'),
-            subtitle: Text(appVersionLabel),
-          ),
+          const _VersionTile(),
           const ListTile(
             title: Text('数据格式'),
             subtitle: Text(
@@ -190,23 +187,6 @@ class SettingsPage extends StatelessWidget {
               '部分设计思路来自开源项目 Legado（开源阅读）：排版预设数值、主题配色、'
               '页眉页脚与翻页方式等交互设计；品牌色取自 wzml.cc.cd/logo 的前景颜色 #76DFA1',
             ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.bug_report_outlined),
-            title: const Text('导出日志'),
-            subtitle: Text('含环境与运行日志：\n${AppLog.logPath}'),
-            onTap: () async {
-              final written = await AppLog.exportToDownloads(
-                AppLog.buildReport(context: '手动导出'),
-              );
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('已导出：\n${written.join('\n')}'),
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            },
           ),
           const ListTile(
             title: Text('许可'),
@@ -264,5 +244,43 @@ class _SectionTitle extends StatelessWidget {
         color: Theme.of(context).colorScheme.primary,
       ),
     ),
+  );
+}
+
+/// 版本一栏：连点 7 次进入开发者页面。
+class _VersionTile extends StatefulWidget {
+  const _VersionTile();
+
+  @override
+  State<_VersionTile> createState() => _VersionTileState();
+}
+
+class _VersionTileState extends State<_VersionTile> {
+  int _taps = 0;
+
+  void _onTap() {
+    _taps++;
+    if (_taps >= 7) {
+      _taps = 0;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const DeveloperPage()),
+      );
+      return;
+    }
+    if (_taps >= 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('再点 ${7 - _taps} 次进入开发者页面'),
+          duration: const Duration(milliseconds: 900),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    title: const Text('版本'),
+    subtitle: Text(appVersionLabel),
+    onTap: _onTap,
   );
 }

@@ -17,7 +17,6 @@ class AppLog {
   AppLog._();
 
   static const int maxLines = 4000;
-  static const int maxFileBytes = 2 * 1024 * 1024;
 
   static final Queue<String> _buffer = Queue<String>();
   static File? _file;
@@ -47,12 +46,7 @@ class AppLog {
       await dir.create(recursive: true);
       final file = File('${dir.path}/app.log');
       _file = file;
-      // 超大日志先轮转，避免无限增长
-      if (file.existsSync() && file.lengthSync() > maxFileBytes) {
-        final rotated = File('${dir.path}/app.log.1');
-        if (rotated.existsSync()) rotated.deleteSync();
-        file.renameSync(rotated.path);
-      }
+      // 单个日志文件，始终追加（不轮转、不分裂）
       _sink = file.openWrite(mode: FileMode.append);
     } catch (error) {
       _file = null;
