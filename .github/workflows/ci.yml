@@ -191,7 +191,7 @@ jobs:
       - name: 校验 APK 内的 Python 运行时
         if: ${{ inputs.build_android }}
         run: |
-          # 容器内没有 unzip，改用 python3 读 zip（镜像里一定有 python3）
+          # 用 python3 读 zip：不依赖 unzip 的输出列格式，避免误判
           python3 - <<'PYEOF'
           import glob, sys, zipfile
           apks = glob.glob('build/app/outputs/flutter-apk/app-debug.apk')
