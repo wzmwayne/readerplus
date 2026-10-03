@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:serious_python/serious_python.dart';
 
+import '../app_log.dart';
 import 'plugin_sandbox.dart';
 
 /// 真实运行时：serious_python 打包的 Python 解释器。
@@ -95,6 +96,7 @@ class PluginRunner {
   }) async {
     final sandbox = await PluginSandbox.create(jobsRoot);
     _sandbox = sandbox;
+    AppLog.info('plugin', '执行开始：task=${params['task']} 目录=${sandbox.root.path}');
     _logOffset = 0;
     await sandbox.writeParams(params);
     await sandbox.writeScript(scriptSource);
@@ -128,6 +130,10 @@ class PluginRunner {
       }
     }
     final ok = failure == null && manifest.ok;
+    AppLog.info(
+      'plugin',
+      ok ? '执行成功：${manifest.outputs.join('、')}' : '执行失败：$traceback',
+    );
     final result = PluginRunResult(
       ok: ok,
       outputs: ok ? sandbox.listOutputs() : const [],

@@ -2,13 +2,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'pages/crash_page.dart';
 import 'pages/home_shell.dart';
+import 'services/app_log.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
+
+/// 供崩溃页跳转使用（未捕获异步异常时尽力切到崩溃页）。
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   final sw = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
+  // 先装日志与崩溃兜底，保证后续一切（含崩溃）都有记录
+  await AppLog.init();
+  installCrashHandlers(appNavigatorKey);
   // 先把设置读出来再渲染第一帧：否则首帧会用默认主题，随后才切到用户选择的主题，
   // 表现为开屏时一闪而过的「默认主题」。
   final state = AppState();
@@ -38,6 +46,7 @@ class ReaderApp extends StatelessWidget {
           final theme =
               kAppThemes[state.settings.themeIndex.clamp(0, kAppThemes.length - 1)];
           return MaterialApp(
+            navigatorKey: appNavigatorKey,
             title: '阅读',
             debugShowCheckedModeBanner: false,
             theme: theme.toThemeData(),

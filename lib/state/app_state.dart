@@ -8,6 +8,7 @@ import '../models/book.dart';
 import '../models/reader_settings.dart';
 import '../services/backup_service.dart';
 import '../services/library_repository.dart';
+import '../services/app_log.dart';
 import '../services/plugin/plugin_repository.dart';
 import '../services/plugin/plugin_runner.dart';
 import '../services/storage.dart';
@@ -59,6 +60,7 @@ class AppState extends ChangeNotifier {
     await _ensureBuiltinPlugin();
 
     ready = true;
+    AppLog.info('app', '初始化完成：书籍 ${books.length} 本、书源脚本 ${(await plugins.load()).length} 个');
     notifyListeners();
   }
 
@@ -120,7 +122,9 @@ class AppState extends ChangeNotifier {
     try {
       busy = true;
       notifyListeners();
+      AppLog.info('import', '导入开始：${file.path}');
       final book = await library.importBook(file);
+      AppLog.info('import', '导入完成：${book.title}');
       _notify('已导入《${book.title}》，共 ${book.chapterCount} 章');
       return book;
     } catch (e) {

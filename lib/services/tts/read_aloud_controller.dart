@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../app_log.dart';
 import 'edge_tts_client.dart';
 import 'tts_audio_sink.dart';
 import 'tts_stream_server.dart';
@@ -331,6 +332,7 @@ class ReadAloudController extends ChangeNotifier {
       }
     } catch (e) {
       lastError = '合成失败：$e';
+      AppLog.error('tts', '合成失败', e is Error ? StackTrace.current : null);
       if (kDebugMode) debugPrint('[tts] 合成失败：$e');
       notifyListeners();
       return false;
@@ -374,6 +376,7 @@ class ReadAloudController extends ChangeNotifier {
       // 单句播放失败（空流/网络抖动/设备无音频输出）不应中断整页朗读，
       // 但要把原因记下来，界面可直接看到
       lastError = '播放失败：$e';
+      AppLog.error('tts', '播放失败：$e');
       if (kDebugMode) debugPrint('[tts] 播放失败：$e');
       notifyListeners();
     }

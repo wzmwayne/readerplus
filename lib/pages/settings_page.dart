@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_info.dart';
+import '../services/app_log.dart';
 import '../models/app_settings.dart';
 import '../state/app_state.dart';
 import 'plugins_page.dart';
@@ -189,6 +190,23 @@ class SettingsPage extends StatelessWidget {
               '部分设计思路来自开源项目 Legado（开源阅读）：排版预设数值、主题配色、'
               '页眉页脚与翻页方式等交互设计；品牌色取自 wzml.cc.cd/logo 的前景颜色 #76DFA1',
             ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.bug_report_outlined),
+            title: const Text('导出日志'),
+            subtitle: Text('含环境与运行日志：\n${AppLog.logPath}'),
+            onTap: () async {
+              final written = await AppLog.exportToDownloads(
+                AppLog.buildReport(context: '手动导出'),
+              );
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('已导出：\n${written.join('\n')}'),
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            },
           ),
           const ListTile(
             title: Text('许可'),
