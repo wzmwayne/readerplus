@@ -13,50 +13,9 @@ import 'plugin_sandbox.dart';
 class SeriousPythonRuntime implements PluginRuntime {
   Completer<void>? _cancelled;
 
-  /// 最近一次运行时的启动诊断（心跳是否到达），供宿主写进日志与错误信息。
-  String lastBootDiagnosis = '';
-
-  /// 解包目录与心跳文件：用于判断"Python 入口是否真的执行过"。
-  Future<({Directory? flet, Directory? app, File? heartbeat})> _paths() async {
-    try {
-      final support = await getApplicationSupportDirectory();
-      return (
-        flet: Directory('${support.path}/flet'),
-        app: Directory('${support.path}/flet/app'),
-        heartbeat: File('${support.path}/readerplus-heartbeat.txt'),
-      );
-    } catch (_) {
-      return (flet: null, app: null, heartbeat: null);
-    }
-  }
-
   @override
   Future<void> runSandbox(String sandboxPath, {required bool audit}) async {
     _cancelled = Completer<void>();
-    final paths = await _paths();
-    lastBootDiagnosis = '';
-
-    // 运行前：解包目录必须有入口脚本，否则清掉让运行时重新解包
-    final app = paths.app;
-    if (app != null) {
-      final hasEntry =
-          File('${app.path}/main.py').existsSync() ||
-          File('${app.path}/main.pyc').existsSync();
-      AppLog.info(
-        'plugin',
-        '解包目录 ${app.path}：入口${hasEntry ? '存在' : '缺失'}、'
-        '目录存在=${app.existsSync()}',
-      );
-      if (!hasEntry && paths.flet!.existsSync()) {
-        AppLog.error('plugin', '解包目录不完整，清理后由运行时重新解包');
-        try {
-          paths.flet!.deleteSync(recursive: true);
-        } catch (_) {}
-      }
-    }
-    try {
-      paths.heartbeat?.deleteSync();
-    } catch (_) {}
     // 环境变量在个别平台可能不会传给 Python 进程，因此再写一份"任务指针"文件：
     // 入口脚本先读环境变量，读不到就按约定路径读这个文件（见 main.py）。
     try {
@@ -75,44 +34,12 @@ class SeriousPythonRuntime implements PluginRuntime {
           'SANDBOX_ROOT': sandboxPath,
           // 由入口脚本读取后立即清除，脚本自身无法得知审计是否开启
           'READERPLUS_SANDBOX_AUDIT': audit ? '1' : '0',
-          if (paths.heartbeat != null)
-            'READERPLUS_HEARTBEAT': paths.heartbeat!.path,
         },
       );
       // 取消时直接结束运行时，不再等待本次调用返回
-      var output = await Future.any<Object?>([run, _cancelled!.future]);
+      final output = await Future.any<Object?>([run, _cancelled!.future]);
       if (output is String && output.trim().isNotEmpty) {
         AppLog.info('plugin', 'python 输出：${output.trim()}');
-      }
-
-      // 心跳缺失 ⇒ Python 入口没执行过：多半是解包目录坏了，清理后重试一次
-      if (!_heartbeatArrived(paths, sandboxPath)) {
-        lastBootDiagnosis = 'Python 入口未执行（运行时启动阶段失败）';
-        AppLog.error('plugin', '$lastBootDiagnosis：清理解包目录后重试一次');
-        try {
-          if (paths.flet?.existsSync() == true) {
-            paths.flet!.deleteSync(recursive: true);
-          }
-          paths.heartbeat?.deleteSync();
-        } catch (_) {}
-        final retry = SeriousPython.run(
-          environmentVariables: {
-            'SANDBOX_ROOT': sandboxPath,
-            'READERPLUS_SANDBOX_AUDIT': audit ? '1' : '0',
-            if (paths.heartbeat != null)
-              'READERPLUS_HEARTBEAT': paths.heartbeat!.path,
-          },
-        );
-        output = await Future.any<Object?>([retry, _cancelled!.future]);
-        if (output is String && output.trim().isNotEmpty) {
-          AppLog.info('plugin', 'python 输出（重试）：${output.trim()}');
-        }
-        if (_heartbeatArrived(paths, sandboxPath)) {
-          lastBootDiagnosis = '';
-          AppLog.info('plugin', '清理解包目录后重试成功');
-        } else {
-          AppLog.error('plugin', '重试后仍未见心跳，运行时无法启动');
-        }
       }
       // 把 Python 侧输出留档：脚本没写 manifest 时，宿主据此给出线索
       if (output is String && output.trim().isNotEmpty) {
@@ -131,25 +58,6 @@ class SeriousPythonRuntime implements PluginRuntime {
   }
 
   @override
-  /// 心跳是否到达：判断 Python 入口有没有真的执行过。
-  bool _heartbeatArrived(
-    ({Directory? flet, Directory? app, File? heartbeat}) paths,
-    String sandboxPath,
-  ) {
-    final candidates = <File>[
-      if (paths.heartbeat != null) paths.heartbeat!,
-      if (paths.app != null) File('${paths.app!.path}/host_boot.txt'),
-      if (paths.flet != null) File('${paths.flet!.path}/data/host_boot.txt'),
-      File('$sandboxPath/host_boot.txt'),
-    ];
-    for (final file in candidates) {
-      try {
-        if (file.existsSync()) return true;
-      } catch (_) {}
-    }
-    return false;
-  }
-
   void cancel() {
     if (_cancelled?.isCompleted == false) _cancelled!.complete();
     try {
