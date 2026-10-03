@@ -179,6 +179,16 @@ class ReadAloudController extends ChangeNotifier {
   /// 最近一次失败原因（合成/播放），成功后清空。
   String? lastError;
 
+  /// 暂停等待：暂停期间即使音频已就绪也不开始播放。
+  Completer<void>? _resumeSignal;
+
+  Future<void> _waitWhilePaused() async {
+    while (_paused && _active) {
+      _resumeSignal ??= Completer<void>();
+      await _resumeSignal!.future;
+    }
+  }
+
   /// 合成串行队列的队尾。
   Future<void> _synthesisQueue = Future<void>.value();
 
@@ -189,9 +199,9 @@ class ReadAloudController extends ChangeNotifier {
   String get currentSentence =>
       _index >= 0 && _index < _segments.length ? _segments[_index].text : '';
 
-  /// 当前正在朗读的句子在原文中的范围（未朗读时为 null）。
+  /// 当前朗读焦点所在的句子（暂停时也保留，只有停止后才为空）。
   SentenceSegment? get currentSegment =>
-      isPlaying && _index >= 0 && _index < _segments.length
+      _active && _index >= 0 && _index < _segments.length
       ? _segments[_index]
       : null;
   bool get isActive => _active;
@@ -237,6 +247,9 @@ class ReadAloudController extends ChangeNotifier {
   Future<void> resume() async {
     if (!_active || !_paused) return;
     _paused = false;
+    final signal = _resumeSignal;
+    _resumeSignal = null;
+    if (signal != null && !signal.isCompleted) signal.complete();
     notifyListeners();
     await _sink.resume();
   }
@@ -353,6 +366,9 @@ class ReadAloudController extends ChangeNotifier {
     if (!_active || job.finished) return;
 
     try {
+      // 暂停中：先等着，直到用户继续（否则"暂停"看起来没效果）
+      await _waitWhilePaused();
+      if (!_active || job.finished) return;
       await _sink.playUrl(_server.urlFor(job.slotId).toString());
     } catch (e) {
       // 单句播放失败（空流/网络抖动/设备无音频输出）不应中断整页朗读，
