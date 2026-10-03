@@ -156,11 +156,15 @@ class PluginSandbox {
   }
 
   /// 写入运行参数（脚本应自行对缺失字段做默认值）。
-  Future<void> writeParams(Map<String, dynamic> params) =>
-      paramsFile.writeAsString(jsonEncode(params), flush: true);
+  Future<void> writeParams(Map<String, dynamic> params) async {
+    await paramsFile.writeAsString(jsonEncode(params), flush: true);
+    AppLog.info('sandbox', '写参数：${jsonEncode(params)}');
+  }
 
-  Future<void> writeScript(String source) =>
-      scriptFile.writeAsString(source, flush: true);
+  Future<void> writeScript(String source) async {
+    await scriptFile.writeAsString(source, flush: true);
+    AppLog.info('sandbox', '写脚本：${source.length} 字符 -> ${scriptFile.path}');
+  }
 
   /// 把输入文件放进 input/。
   Future<File> addInput(String fileName, List<int> bytes) async {

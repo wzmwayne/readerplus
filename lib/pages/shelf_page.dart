@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/book.dart';
 import '../reader/reader_page.dart';
 import '../services/plugin/plugin_sandbox.dart';
+import '../services/app_log.dart';
 import '../state/app_state.dart';
 import 'plugin_run_page.dart';
 import '../widgets/book_cover.dart';
@@ -29,6 +30,7 @@ class _ShelfPageState extends State<ShelfPage> {
   );
 
   Future<void> _importBook() async {
+    AppLog.info('shelf', '点击导入书籍');
     final state = context.read<AppState>();
     try {
       final file = await openFile(acceptedTypeGroups: const [_bookTypeGroup]);
@@ -228,6 +230,7 @@ class _ShelfPageState extends State<ShelfPage> {
   );
 
   Future<void> _open(Book book) async {
+    AppLog.info('shelf', '打开书籍：${book.title}（id=${book.id}）');
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ReaderPage(book: book)),
     );

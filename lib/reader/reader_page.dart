@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../services/app_log.dart';
+
 import '../models/book.dart';
 import '../models/reader_settings.dart';
 import '../state/app_state.dart';
@@ -422,6 +424,7 @@ class _ReaderPageState extends State<ReaderPage>
   void _applyTurn(int delta, {bool restartReading = true}) {
     final target = _flatIndex + delta;
     if (target < 0 || target >= _flat.length) return;
+    AppLog.info('reader', '翻页：${_flatIndex + delta}（delta=$delta）');
     setState(() {
       _flatIndex = target;
       final chapter = _flat[target].chapter;

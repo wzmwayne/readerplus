@@ -239,6 +239,7 @@ class ReadAloudController extends ChangeNotifier {
   }
 
   Future<void> pause() async {
+    AppLog.info('tts', '暂停（第 ${_index + 1}/${_segments.length} 句）');
     if (!_active || _paused) return;
     _paused = true;
     notifyListeners();
@@ -246,6 +247,7 @@ class ReadAloudController extends ChangeNotifier {
   }
 
   Future<void> resume() async {
+    AppLog.info('tts', '继续（第 ${_index + 1} 句）');
     if (!_active || !_paused) return;
     _paused = false;
     final signal = _resumeSignal;

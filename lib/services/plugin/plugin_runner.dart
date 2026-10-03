@@ -75,44 +75,19 @@ class SeriousPythonRuntime implements PluginRuntime {
           'SANDBOX_ROOT': sandboxPath,
           // 由入口脚本读取后立即清除，脚本自身无法得知审计是否开启
           'READERPLUS_SANDBOX_AUDIT': audit ? '1' : '0',
-          if (paths.heartbeat != null)
-            'READERPLUS_HEARTBEAT': paths.heartbeat!.path,
         },
       );
       // 取消时直接结束运行时，不再等待本次调用返回
-      var output = await Future.any<Object?>([run, _cancelled!.future]);
+      final output = await Future.any<Object?>([run, _cancelled!.future]);
       if (output is String && output.trim().isNotEmpty) {
         AppLog.info('plugin', 'python 输出：${output.trim()}');
       }
-
-      // 心跳缺失 ⇒ Python 入口没执行过：多半是解包目录坏了，清理后重试一次
       if (!_heartbeatArrived(paths, sandboxPath)) {
+        // 只诊断不重试：单进程内二次启动解释器会直接 abort（#8 可用的构建没有这一步）
         lastBootDiagnosis = 'Python 入口未执行（运行时启动阶段失败）';
-        AppLog.error('plugin', '$lastBootDiagnosis：清理解包目录后重试一次');
-        try {
-          if (paths.flet?.existsSync() == true) {
-            paths.flet!.deleteSync(recursive: true);
-          }
-          paths.heartbeat?.deleteSync();
-        } catch (_) {}
-        final retry = SeriousPython.run(
-          environmentVariables: {
-            'SANDBOX_ROOT': sandboxPath,
-            'READERPLUS_SANDBOX_AUDIT': audit ? '1' : '0',
-            if (paths.heartbeat != null)
-              'READERPLUS_HEARTBEAT': paths.heartbeat!.path,
-          },
-        );
-        output = await Future.any<Object?>([retry, _cancelled!.future]);
-        if (output is String && output.trim().isNotEmpty) {
-          AppLog.info('plugin', 'python 输出（重试）：${output.trim()}');
-        }
-        if (_heartbeatArrived(paths, sandboxPath)) {
-          lastBootDiagnosis = '';
-          AppLog.info('plugin', '清理解包目录后重试成功');
-        } else {
-          AppLog.error('plugin', '重试后仍未见心跳，运行时无法启动');
-        }
+        AppLog.error('plugin', '$lastBootDiagnosis：未收到任何 [host] 输出');
+      } else {
+        AppLog.info('plugin', 'Python 入口已启动（收到心跳）');
       }
       // 把 Python 侧输出留档：脚本没写 manifest 时，宿主据此给出线索
       if (output is String && output.trim().isNotEmpty) {
@@ -130,7 +105,6 @@ class SeriousPythonRuntime implements PluginRuntime {
     }
   }
 
-  @override
   /// 心跳是否到达：判断 Python 入口有没有真的执行过。
   bool _heartbeatArrived(
     ({Directory? flet, Directory? app, File? heartbeat}) paths,
