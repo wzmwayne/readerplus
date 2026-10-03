@@ -506,7 +506,17 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
-  void _handleTap(TapUpDetails details, double width) {
+  /// 统一的点击判定：x 落在左 1/3 上一页、右 1/3 下一页、中间显示菜单。
+  ///
+  /// 注意：本函数被包在 `SelectionArea` **内层**的 GestureDetector 调用
+  /// （见 [_withSelection]）——若放到外层，SelectableRegion 的 tap 识别器
+  /// 会在手势竞技场里胜出，导致这里**永远收不到点击**（曾经的 bug）。
+  void _handleTapAt(double x, double width, {String origin = 'outer'}) {
+    AppLog.info(
+      'reader',
+      '点击[$origin]：x=${x.toStringAsFixed(0)}/${width.toStringAsFixed(0)} '
+      '选择模式=$_selectionMode 菜单=$_menuVisible',
+    );
     // 选择模式下不翻页、不弹菜单（选区托管给系统）
     if (_selectionMode) return;
     if (_menuVisible) {
@@ -517,7 +527,6 @@ class _ReaderPageState extends State<ReaderPage>
       });
       return;
     }
-    final x = details.localPosition.dx;
     final delta = x < width / 3
         ? -1
         : (x > width * 2 / 3
@@ -532,9 +541,8 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
-  /// 双击**中部**进入选择模式；双击已在选择模式时退出并清除选中。
-  void _handleDoubleTap(TapDownDetails details, double width) {
-    final x = details.localPosition.dx;
+  void _handleDoubleTapAt(double x, double width, {String origin = 'outer'}) {
+    AppLog.info('reader', '双击[$origin]：x=${x.toStringAsFixed(0)}');
     final middle = x >= width / 3 && x <= width * 2 / 3;
     if (_selectionMode) {
       _exitSelectionMode();
@@ -750,6 +758,11 @@ class _ReaderPageState extends State<ReaderPage>
 
   /// 用系统选择管理器包裹正文：长按/双击选择、拖动调整、复制等全部走系统，
   /// 额外在菜单里追加「从本段听」。
+  /// 选区交给系统，但**点击/双击识别器必须放在 SelectionArea 内层**：
+  /// SelectableRegion 自带 tap 识别器，且它比外层更深 ⇒ 按 Flutter 手势竞技场
+  /// "首个成员胜出"（sweep: first member wins）外层 onTapUp 永远收不到事件。
+  /// 宽度必须用**本识别器所在盒子的宽度**（不是 MediaQuery 整屏宽），
+  /// 否则内容区 padding 会让左/中/右三分区整体偏移。
   Widget _withSelection(Widget child) => SelectionArea(
     key: ValueKey(_selectionEpoch),
     onSelectionChanged: (content) =>
@@ -770,7 +783,22 @@ class _ReaderPageState extends State<ReaderPage>
         ],
       );
     },
-    child: child,
+    child: LayoutBuilder(
+      builder: (context, constraints) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: (d) => _handleTapAt(
+          d.localPosition.dx,
+          constraints.maxWidth,
+          origin: 'inner',
+        ),
+        onDoubleTapDown: (d) => _handleDoubleTapAt(
+          d.localPosition.dx,
+          constraints.maxWidth,
+          origin: 'inner',
+        ),
+        child: child,
+      ),
+    ),
   );
 
   /// 从选中文字处开始朗读。
@@ -1023,8 +1051,8 @@ class _ReaderPageState extends State<ReaderPage>
       case PageMode.slide:
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapUp: (d) => _handleTap(d, width),
-          onDoubleTapDown: (d) => _handleDoubleTap(d, width),
+          onTapUp: (d) => _handleTapAt(d.localPosition.dx, width, origin: 'outer'),
+          onDoubleTapDown: (d) => _handleDoubleTapAt(d.localPosition.dx, width, origin: 'outer'),
           child: PageView.builder(
             controller: _slideController,
             // 仅选择模式下把滑动让给文字选择；平时滑动翻页（含桌面）
@@ -1052,8 +1080,8 @@ class _ReaderPageState extends State<ReaderPage>
             _scrollAnchor.clamp(0, math.max(0, _chapters.length - 1)).toInt();
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapUp: (d) => _handleTap(d, width),
-          onDoubleTapDown: (d) => _handleDoubleTap(d, width),
+          onTapUp: (d) => _handleTapAt(d.localPosition.dx, width, origin: 'outer'),
+          onDoubleTapDown: (d) => _handleDoubleTapAt(d.localPosition.dx, width, origin: 'outer'),
           child: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
             child: _withSelection(
@@ -1087,8 +1115,8 @@ class _ReaderPageState extends State<ReaderPage>
             : null;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapUp: (d) => _handleTap(d, width),
-          onDoubleTapDown: (d) => _handleDoubleTap(d, width),
+          onTapUp: (d) => _handleTapAt(d.localPosition.dx, width, origin: 'outer'),
+          onDoubleTapDown: (d) => _handleDoubleTapAt(d.localPosition.dx, width, origin: 'outer'),
           // 平时（含桌面）横向拖拽翻页；选择模式下让位给文字选择
           onHorizontalDragUpdate: _selectionMode
               ? null
@@ -1319,8 +1347,9 @@ class _ReaderPageState extends State<ReaderPage>
   Widget _pageFrame(ReaderSettings rs, int flatIndex) {
     final flat =
         flatIndex >= 0 && flatIndex < _flat.length ? _flat[flatIndex] : null;
-    final headerHeight = _tipBarHeight(rs, isHeader: true);
-    final footerHeight = _tipBarHeight(rs, isHeader: false);
+    // 取整：亚像素高度会让 Column 固定部分超出容器（实测 0.76px 溢出）
+    final headerHeight = _tipBarHeight(rs, isHeader: true).floorToDouble();
+    final footerHeight = _tipBarHeight(rs, isHeader: false).floorToDouble();
     return Container(
       padding: EdgeInsets.only(
         left: rs.paddingLeft,
