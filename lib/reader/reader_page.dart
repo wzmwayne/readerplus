@@ -511,10 +511,10 @@ class _ReaderPageState extends State<ReaderPage>
   /// 注意：本函数被包在 `SelectionArea` **内层**的 GestureDetector 调用
   /// （见 [_withSelection]）——若放到外层，SelectableRegion 的 tap 识别器
   /// 会在手势竞技场里胜出，导致这里**永远收不到点击**（曾经的 bug）。
-  void _handleTapAt(double x, double width, {String origin = 'outer'}) {
+  void _handleTapAt(double x, double width) {
     AppLog.info(
       'reader',
-      '点击[$origin]：x=${x.toStringAsFixed(0)}/${width.toStringAsFixed(0)} '
+      '点击：x=${x.toStringAsFixed(0)}/${width.toStringAsFixed(0)} '
       '选择模式=$_selectionMode 菜单=$_menuVisible',
     );
     // 选择模式下不翻页、不弹菜单（选区托管给系统）
@@ -541,8 +541,8 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
-  void _handleDoubleTapAt(double x, double width, {String origin = 'outer'}) {
-    AppLog.info('reader', '双击[$origin]：x=${x.toStringAsFixed(0)}');
+  void _handleDoubleTapAt(double x, double width) {
+    AppLog.info('reader', '双击：x=${x.toStringAsFixed(0)}');
     final middle = x >= width / 3 && x <= width * 2 / 3;
     if (_selectionMode) {
       _exitSelectionMode();
@@ -789,13 +789,9 @@ class _ReaderPageState extends State<ReaderPage>
         onTapUp: (d) => _handleTapAt(
           d.localPosition.dx,
           constraints.maxWidth,
-          origin: 'inner',
         ),
-        onDoubleTapDown: (d) => _handleDoubleTapAt(
-          d.localPosition.dx,
-          constraints.maxWidth,
-          origin: 'inner',
-        ),
+        onDoubleTapDown: (d) =>
+            _handleDoubleTapAt(d.localPosition.dx, constraints.maxWidth),
         child: child,
       ),
     ),
@@ -1051,8 +1047,6 @@ class _ReaderPageState extends State<ReaderPage>
       case PageMode.slide:
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapUp: (d) => _handleTapAt(d.localPosition.dx, width, origin: 'outer'),
-          onDoubleTapDown: (d) => _handleDoubleTapAt(d.localPosition.dx, width, origin: 'outer'),
           child: PageView.builder(
             controller: _slideController,
             // 仅选择模式下把滑动让给文字选择；平时滑动翻页（含桌面）
@@ -1080,8 +1074,6 @@ class _ReaderPageState extends State<ReaderPage>
             _scrollAnchor.clamp(0, math.max(0, _chapters.length - 1)).toInt();
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapUp: (d) => _handleTapAt(d.localPosition.dx, width, origin: 'outer'),
-          onDoubleTapDown: (d) => _handleDoubleTapAt(d.localPosition.dx, width, origin: 'outer'),
           child: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
             child: _withSelection(
@@ -1115,8 +1107,6 @@ class _ReaderPageState extends State<ReaderPage>
             : null;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapUp: (d) => _handleTapAt(d.localPosition.dx, width, origin: 'outer'),
-          onDoubleTapDown: (d) => _handleDoubleTapAt(d.localPosition.dx, width, origin: 'outer'),
           // 平时（含桌面）横向拖拽翻页；选择模式下让位给文字选择
           onHorizontalDragUpdate: _selectionMode
               ? null
@@ -1350,7 +1340,9 @@ class _ReaderPageState extends State<ReaderPage>
     // 取整：亚像素高度会让 Column 固定部分超出容器（实测 0.76px 溢出）
     final headerHeight = _tipBarHeight(rs, isHeader: true).floorToDouble();
     final footerHeight = _tipBarHeight(rs, isHeader: false).floorToDouble();
-    return Container(
+    // 整页（含上下提示条）由**同一个**点按层处理：
+    // 它在 SelectionArea 内层（比 SelectableRegion 更深 ⇒ 必胜），全页唯一。
+    return _withSelection(Container(
       padding: EdgeInsets.only(
         left: rs.paddingLeft,
         right: rs.paddingRight,
@@ -1366,7 +1358,7 @@ class _ReaderPageState extends State<ReaderPage>
               child: _tipBar(rs, isHeader: true, flat: flat),
             ),
           Expanded(
-            child: ClipRect(child: _withSelection(_paragraphArea(rs, flat))),
+            child: ClipRect(child: _paragraphArea(rs, flat)),
           ),
           if (footerHeight > 0)
             SizedBox(
@@ -1375,7 +1367,7 @@ class _ReaderPageState extends State<ReaderPage>
             ),
         ],
       ),
-    );
+    ));
   }
 
   Widget _tipBar(ReaderSettings rs, {required bool isHeader, _FlatPage? flat}) {

@@ -94,15 +94,11 @@ class _SearchPageState extends State<SearchPage> {
     final query = _query.text.trim();
     if (query.isEmpty || _running) return;
     final picked = _sources.where((e) => _selected.contains(e.id)).toList();
-    final token = ScriptCancelToken();
-    setState(() {
-      _running = true;
-      _token = token;
-      _results = const [];
-      _logs
-        ..clear()
-        ..add('开始搜索：$query（${picked.length} 个书源）');
-    });
+    setState(() => _results = const []);
+    final token = _beginRun(
+      '开始搜索：$query（${picked.length} 个书源）',
+      clearLogs: true,
+    );
 
     final collected = <({String sourceId, Map<String, String> item})>[];
     for (final entry in picked) {
@@ -131,15 +127,14 @@ class _SearchPageState extends State<SearchPage> {
     }
     if (!mounted) return;
     setState(() {
-      _running = false;
-      _token = null;
       _results = collected;
-      _logs.add(
-        token.cancelled
-            ? '已强制停止：保留已完成的 ${collected.length} 条'
-            : '全部结束：共 ${collected.length} 条',
-      );
     });
+    _append(
+      token.cancelled
+          ? '已强制停止：保留已完成的 ${collected.length} 条'
+          : '全部结束：共 ${collected.length} 条',
+    );
+    _endRun(token);
   }
 
   /// 强制停止：杀掉当前正在跑的脚本 isolate，并终结后续书源。
@@ -166,6 +161,32 @@ class _SearchPageState extends State<SearchPage> {
     );
     _append(reply.ok ? '已回答（${reply.answer.length} 字符）' : '询问被取消');
     return reply;
+  }
+
+  /// 统一的「开始一次运行」：忙状态、取消令牌、日志分段规则都走这里。
+  ///
+  /// 搜索与下载**共用**，保证两者待遇完全一致：
+  /// 不确定进度条、AppBar 取消、日志行取消、实时日志、取消令牌、转屏不中断。
+  ScriptCancelToken _beginRun(String header, {bool clearLogs = false}) {
+    final token = ScriptCancelToken();
+    setState(() {
+      _running = true;
+      _token = token;
+      if (clearLogs) _logs.clear();
+      _logs.add(header);
+    });
+    return token;
+  }
+
+  /// 统一的「结束一次运行」。只有当前令牌匹配才复位，避免交叉影响。
+  void _endRun(ScriptCancelToken token) {
+    if (!mounted) return;
+    setState(() {
+      if (identical(_token, token)) {
+        _running = false;
+        _token = null;
+      }
+    });
   }
 
   /// 按脚本分组（保持书源列表顺序，便于对照）。
@@ -293,13 +314,8 @@ class _SearchPageState extends State<SearchPage> {
     String author = '',
     String cover = '',
   }) async {
-    _append('开始下载：$title');
-    // 与搜索一样进入忙状态：显示不确定进度条、顶栏与日志行都可点「取消」
-    final downloadToken = ScriptCancelToken();
-    setState(() {
-      _running = true;
-      _token = downloadToken;
-    });
+    // 与搜索共用同一条路径 ⇒ 待遇完全相同（进度条/取消/实时日志/令牌）
+    final downloadToken = _beginRun('开始下载：$title（来源：${entry.name}）');
     try {
       final settings = context.read<AppState>().settings;
       final result = await _service.downloadChapters(
@@ -344,12 +360,7 @@ class _SearchPageState extends State<SearchPage> {
       AppLog.error('source', '下载失败：$error');
       _append(_explain(error, '下载'));
     } finally {
-      if (mounted) {
-        setState(() {
-          _running = false;
-          _token = null;
-        });
-      }
+      _endRun(downloadToken);
     }
   }
 
