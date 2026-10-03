@@ -2,14 +2,14 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../models/book.dart';
 import '../reader/reader_page.dart';
-import '../services/plugin/plugin_sandbox.dart';
 import '../services/app_log.dart';
+import '../services/txt/txt_to_epub.dart';
 import '../state/app_state.dart';
-import 'plugin_run_page.dart';
 import '../widgets/book_cover.dart';
 
 /// 书架：网格 / 列表两种布局，长按书籍弹出操作菜单。
@@ -36,63 +36,34 @@ class _ShelfPageState extends State<ShelfPage> {
       final file = await openFile(acceptedTypeGroups: const [_bookTypeGroup]);
       if (file == null) return;
       final picked = File(file.path);
-      // TXT 交给内置脚本清洗转 EPUB；EPUB 直接导入
+      // TXT：纯 Dart 管线（编码探测 → 规则清洗 → 分章 → EPUB 3 → 入库）
+      // EPUB：直接导入
       if (picked.path.toLowerCase().endsWith('.txt')) {
-        final scripts = await state.plugins.load();
-        // 所有可用的清理脚本都列出来，由用户选择
-        final cleaners = scripts
-            .where((script) => script.enabled && script.task == PluginTask.clean)
-            .toList();
-        if (cleaners.isNotEmpty) {
-          if (!mounted) return;
-          final chosen = await showDialog<PluginScript>(
-            context: context,
-            builder: (context) => SimpleDialog(
-              title: const Text('用哪个脚本导入？'),
-              children: [
-                for (final script in cleaners)
-                  SimpleDialogOption(
-                    onPressed: () => Navigator.of(context).pop(script),
-                    child: ListTile(
-                      leading: Icon(
-                        script.builtin
-                            ? Icons.auto_awesome_outlined
-                            : Icons.extension_outlined,
-                      ),
-                      title: Text(script.name),
-                      subtitle: Text(
-                        script.description.isEmpty
-                            ? (script.capabilities.isEmpty
-                                  ? '未声明能力'
-                                  : script.capabilities.join(' / '))
-                            : script.description,
-                      ),
-                    ),
-                  ),
-                SimpleDialogOption(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const ListTile(
-                    leading: Icon(Icons.close),
-                    title: Text('取消'),
-                  ),
-                ),
-              ],
-            ),
-          );
-          if (chosen == null || !mounted) return;
-          await Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => PluginRunPage(
-                script: chosen,
-                inputFile: picked,
-                audit: state.settings.scriptSandboxAudit,
-              ),
-            ),
-          );
-          return;
-        }
+        final bytes = await TxtToEpub.fromFile(
+          picked,
+          rules: const [
+            [r'[\u200b\ufeff]', ''],
+            [r'(?m)^\s*(广告|推广)[:：].*$', ''],
+          ],
+        );
+        final dir = Directory(
+          '${(await getTemporaryDirectory()).path}/txt_import',
+        );
+        if (!dir.existsSync()) await dir.create(recursive: true);
+        final name = picked.uri.pathSegments.last.replaceAll(
+          RegExp(r'\.txt$', caseSensitive: false),
+          '',
+        );
+        final epub = File('${dir.path}/$name.epub');
+        await epub.writeAsBytes(bytes, flush: true);
+        AppLog.info('shelf', 'TXT 已转为 EPUB：${epub.path}（${bytes.length} 字节）');
+        final book = await state.importBook(epub);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已导入：${book?.title ?? name}')),
+        );
+        return;
       }
-      await state.importBook(picked);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导入失败：$e')));

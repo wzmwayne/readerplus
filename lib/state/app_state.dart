@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
 import '../models/app_settings.dart';
 import '../models/book.dart';
@@ -9,8 +8,6 @@ import '../models/reader_settings.dart';
 import '../services/backup_service.dart';
 import '../services/library_repository.dart';
 import '../services/app_log.dart';
-import '../services/plugin/plugin_repository.dart';
-import '../services/plugin/plugin_runner.dart';
 import '../services/storage.dart';
 import '../services/sync_service.dart';
 
@@ -19,8 +16,6 @@ class AppState extends ChangeNotifier {
   AppState();
 
   late Storage storage;
-  late PluginRepository plugins;
-  late PluginRunner pluginRunner;
   late LibraryRepository library;
   late BackupService backup;
   late SyncService sync;
@@ -37,8 +32,6 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     storage = await Storage.instance();
-    plugins = PluginRepository(storage);
-    pluginRunner = PluginRunner();
     library = LibraryRepository(storage);
     backup = BackupService(storage);
     sync = SyncService(storage);
@@ -57,40 +50,12 @@ class AppState extends ChangeNotifier {
     }
     final webdavJson = await storage.readJson('webdav.json');
     if (webdavJson != null) webdav = WebDavConfig.fromJson(webdavJson);
-    await _ensureBuiltinPlugin();
 
     ready = true;
-    AppLog.info('app', '初始化完成：书籍 ${books.length} 本、书源脚本 ${(await plugins.load()).length} 个');
+    AppLog.info('app', '初始化完成：书籍 ${books.length} 本');
     notifyListeners();
   }
 
-  /// 首次运行导入内置脚本（TXT 清洗转 EPUB）并启用；已有则跳过。
-  Future<void> _ensureBuiltinPlugin() async {
-    try {
-      final scripts = await plugins.load();
-      if (scripts.any((script) => script.builtin)) return;
-      final source = await rootBundle.loadString(
-        'python/examples/txt_cleaner.py',
-      );
-      await plugins.importSource(
-        source,
-        name: '内置：TXT 清洗转 EPUB',
-        builtin: true,
-        params: const {
-          'input_file': 'raw.txt',
-          'output_file': 'book.epub',
-          'chapter_pattern': r'^第[一二三四五六七八九十百千0-9]+章.*$',
-          // 内置清理已交由脚本负责：去掉零宽字符与常见广告行
-          'clean_rules': [
-            [r'[\u200b\ufeff]', ''],
-            [r'(?m)^\s*(广告|推广)[:：].*$', ''],
-          ],
-        },
-      );
-    } catch (error) {
-      debugPrint('[plugin] 导入内置脚本失败：$error');
-    }
-  }
 
   void _notify(String? text) {
     message = text;

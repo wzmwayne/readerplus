@@ -8,7 +8,6 @@ import '../app_info.dart';
 import '../models/app_settings.dart';
 import '../state/app_state.dart';
 import 'developer_page.dart';
-import 'plugins_page.dart';
 import 'settings_read_aloud_section.dart';
 import '../theme/app_theme.dart';
 import 'webdav_page.dart';
@@ -121,15 +120,6 @@ class SettingsPage extends StatelessWidget {
           const SettingsReadAloudSection(),
           const Divider(),
           const _SectionTitle('脚本插件'),
-          ListTile(
-            leading: const Icon(Icons.extension_outlined),
-            title: const Text('脚本插件'),
-            subtitle: const Text('导入 Python 脚本：清洗 TXT / 书源下载，产出 EPUB 3'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PluginsPage()),
-            ),
-          ),
           SwitchListTile(
             secondary: const Icon(Icons.shield_outlined),
             title: const Text('沙盒审计'),
@@ -177,7 +167,7 @@ class SettingsPage extends StatelessWidget {
           const ListTile(
             title: Text('数据格式'),
             subtitle: Text(
-              '自定义 JSON（library / settings / reader_settings / webdav / plugins）'
+              '自定义 JSON（library / settings / reader_settings / webdav / sources）'
               '＋ zip 备份包，保存在应用私有目录',
             ),
           ),
