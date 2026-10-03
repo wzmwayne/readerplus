@@ -191,28 +191,35 @@ jobs:
       - name: 校验 APK 内的 Python 运行时
         if: ${{ inputs.build_android }}
         run: |
-          set -e
-          APK=$(find build/app/outputs/flutter-apk -name "app-debug.apk" | head -1)
-          echo "检查 $APK"
-          size_of() { unzip -l "$APK" | awk -v p="$1" '$4 ~ p {print $1; exit}'; }
-          PY=$(size_of 'lib/arm64-v8a/libpython')
-          STD=$(size_of 'assets/stdlib\.zip')
-          SITE=$(size_of 'assets/sitepackages\.zip')
-          APP=$(size_of 'assets/app\.zip')
-          echo "libpython=${PY:-0} stdlib.zip=${STD:-0} sitepackages.zip=${SITE:-0} app.zip=${APP:-0}"
-          [ -n "$PY" ] || { echo "::error::APK 缺少 libpython"; exit 1; }
-          [ "${STD:-0}" -gt 3000000 ] || { echo "::error::stdlib.zip 过小（${STD:-0} 字节），标准库未正确打包"; exit 1; }
-          [ "${SITE:-0}" -gt 100000 ] || { echo "::error::sitepackages.zip 过小（${SITE:-0} 字节），依赖未安装"; exit 1; }
-          [ "${APP:-0}" -gt 1000 ] || { echo "::error::app.zip 过小，脚本未打包"; exit 1; }
-          {
-            echo "### Python 运行时资源"
-            echo "| 资源 | 字节 |"
-            echo "|---|---|"
-            echo "| libpython | ${PY} |"
-            echo "| stdlib.zip | ${STD} |"
-            echo "| sitepackages.zip | ${SITE} |"
-            echo "| app.zip | ${APP} |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          # 容器内没有 unzip，改用 python3 读 zip（镜像里一定有 python3）
+          python3 - <<'PYEOF'
+          import glob, sys, zipfile
+          apks = glob.glob('build/app/outputs/flutter-apk/app-debug.apk')
+          if not apks:
+              print('::error::未找到 app-debug.apk'); sys.exit(1)
+          names = zipfile.ZipFile(apks[0]).infolist()
+          sizes = {i.filename: i.file_size for i in names}
+          libpython = [n for n in sizes if n.startswith('lib/arm64-v8a/libpython')]
+          std = sizes.get('assets/stdlib.zip', 0)
+          site = sizes.get('assets/sitepackages.zip', 0)
+          app = sizes.get('assets/app.zip', 0)
+          print(f'libpython={libpython} stdlib.zip={std} sitepackages.zip={site} app.zip={app}')
+          problems = []
+          if not libpython: problems.append('APK 缺少 libpython')
+          if std < 3_000_000: problems.append(f'stdlib.zip 过小（{std}）')
+          if site < 100_000: problems.append(f'sitepackages.zip 过小（{site}）')
+          if app < 1_000: problems.append(f'app.zip 过小（{app}）')
+          summary = ('### Python 运行时资源\n\n| 资源 | 字节 |\n|---|---|\n'
+                     f'| libpython | {libpython} |\n| stdlib.zip | {std} |\n'
+                     f'| sitepackages.zip | {site} |\n| app.zip | {app} |\n')
+          with open(__import__('os').environ.get('GITHUB_STEP_SUMMARY', '/dev/null'), 'a') as fh:
+              fh.write(summary)
+          if problems:
+              for it in problems:
+                  print(f'::error::{it}')
+              sys.exit(1)
+          print('运行时资源检查通过')
+          PYEOF
 
       - name: 上传 APK
         uses: actions/upload-artifact@v7.0.1
