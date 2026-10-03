@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+# 脚本沙盒心跳（本地跑测试会生成）
+host_boot.txt
+# 脚本沙盒心跳（本地跑测试会生成）
+readerplus-heartbeat.txt
