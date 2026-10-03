@@ -126,7 +126,7 @@ class _SearchPageState extends State<SearchPage> {
           break;
         }
         AppLog.error('source', '书源 ${entry.name} 失败：$error');
-        _append('失败：$error');
+        _append(_explain(error, '搜索'));
       }
     }
     if (!mounted) return;
@@ -294,6 +294,12 @@ class _SearchPageState extends State<SearchPage> {
     String cover = '',
   }) async {
     _append('开始下载：$title');
+    // 与搜索一样进入忙状态：显示不确定进度条、顶栏与日志行都可点「取消」
+    final downloadToken = ScriptCancelToken();
+    setState(() {
+      _running = true;
+      _token = downloadToken;
+    });
     try {
       final settings = context.read<AppState>().settings;
       final result = await _service.downloadChapters(
@@ -302,7 +308,7 @@ class _SearchPageState extends State<SearchPage> {
         onLog: _append,
         // 0 = 不限制（默认）；可在设置里收紧
         timeout: Duration(seconds: settings.downloadTimeoutSeconds),
-        token: _token,
+        token: downloadToken,
         onAsk: _onAsk,
       );
       if (result.chapters.isEmpty) {
@@ -336,8 +342,26 @@ class _SearchPageState extends State<SearchPage> {
       _append(book == null ? '入库失败' : '已入库：${book.title}（作者 ${book.author}）');
     } catch (error) {
       AppLog.error('source', '下载失败：$error');
-      _append('下载失败：$error');
+      _append(_explain(error, '下载'));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _token = null;
+        });
+      }
     }
+  }
+
+  /// 把运行器的结束原因说清楚：被杀死（超时/取消）≠ 脚本报错退出。
+  String _explain(Object error, String action) {
+    final text = '$error';
+    if (text.contains('取消')) return '$action被取消：脚本已被强制停止';
+    if (text.contains('超时')) return '$action超时：脚本已被强制停止';
+    if (text.contains('异常退出') || text.contains('意外结束')) {
+      return '$action：脚本异常退出（$text）';
+    }
+    return '$action失败：$text';
   }
 
   /// 搜索结果里的封面地址：下载步骤没给封面时兜底抓取。
@@ -431,7 +455,21 @@ class _SearchPageState extends State<SearchPage> {
                   ),
                 if (_logs.isNotEmpty) ...[
                   const Divider(),
-                  const ListTile(dense: true, title: Text('执行过程（实时）')),
+                  ListTile(
+                    dense: true,
+                    title: const Text('执行过程（实时）'),
+                    // 取消就放在这一行：运行中随时可点，强制停止所有在跑的脚本
+                    trailing: _running
+                        ? TextButton.icon(
+                            onPressed: _cancel,
+                            icon: const Icon(
+                              Icons.stop_circle_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('取消'),
+                          )
+                        : null,
+                  ),
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 12),
                     padding: const EdgeInsets.all(8),

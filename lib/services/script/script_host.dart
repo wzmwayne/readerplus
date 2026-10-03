@@ -306,6 +306,79 @@ class ScriptHost {
     return TxtToEpub.applyRules(text, parsed);
   }
 
+  // ---------- 脚本工作目录（沙箱：脚本可完全操控，但出不去）----------
+
+  /// 本次运行的工作目录路径（不存在则创建）。脚本可在其中自由读写增删。
+  String sandboxDir() {
+    final dir = outputDir;
+    if (dir == null) throw StateError('本次运行没有工作目录');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    return dir.path;
+  }
+
+  /// 把脚本给的相对名解析成本次工作目录内的路径；越界直接拒绝。
+  File _sandboxFile(String name) {
+    final dir = outputDir;
+    if (dir == null) throw StateError('本次运行没有工作目录');
+    final clean = name.trim().replaceAll('\\', '/');
+    if (clean.isEmpty) throw ArgumentError('文件名不能为空');
+    if (clean.startsWith('/') || clean.contains(':')) {
+      throw ArgumentError('只能使用工作目录内的相对路径：$name');
+    }
+    for (final part in clean.split('/')) {
+      if (part == '..') throw ArgumentError('不允许越出工作目录：$name');
+    }
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final file = File('${dir.path}/$clean');
+    final parent = file.parent;
+    if (!parent.existsSync()) parent.createSync(recursive: true);
+    return file;
+  }
+
+  /// 写文件（不存在则创建，父目录自动建立），返回绝对路径。
+  String fileWrite(String name, List<int> bytes) {
+    final file = _sandboxFile(name);
+    file.writeAsBytesSync(bytes, flush: true);
+    return file.path;
+  }
+
+  /// 读文件字节（不存在抛错，脚本可用 fileExists 先判断）。
+  List<int> fileRead(String name) => _sandboxFile(name).readAsBytesSync();
+
+  /// 读文件文本（UTF-8，容错解码）。
+  String fileText(String name) =>
+      utf8.decode(_sandboxFile(name).readAsBytesSync(), allowMalformed: true);
+
+  /// 列出工作目录内的文件（相对名，递归一层层列亦可由脚本自行组合）。
+  List<String> fileList([String sub = '']) {
+    final dir = sub.trim().isEmpty
+        ? Directory(sandboxDir())
+        : _sandboxFile(sub).parent;
+    if (!dir.existsSync()) return const [];
+    final base = sandboxDir();
+    final names = <String>[];
+    for (final entity in dir.listSync()) {
+      final path = entity.path;
+      names.add(path.startsWith('$base/') ? path.substring(base.length + 1) : path);
+    }
+    return names;
+  }
+
+  bool fileExists(String name) => _sandboxFile(name).existsSync();
+
+  /// 删除文件；返回是否真的删掉了。
+  bool fileDelete(String name) {
+    final file = _sandboxFile(name);
+    if (!file.existsSync()) return false;
+    file.deleteSync();
+    return true;
+  }
+
+  int fileSize(String name) {
+    final file = _sandboxFile(name);
+    return file.existsSync() ? file.lengthSync() : 0;
+  }
+
   // ---------- 密码学与压缩（自建/私人书源常用）----------
 
   /// 摘要：md5 / sha1 / sha256 / sha512，输入按 encoding 解释（utf8/base64/hex）。

@@ -72,6 +72,25 @@ class HetuScriptEngine {
           host.setResult(positionalArgs.isEmpty ? null : positionalArgs.first);
           return null;
         },
+        // 脚本工作目录（沙箱）：可完全操控，但路径越界会被拒绝
+        'sandboxDir': ({positionalArgs, namedArgs}) => host.sandboxDir(),
+        'fileWrite': ({positionalArgs, namedArgs}) => host.fileWrite(
+          '${positionalArgs[0]}',
+          (positionalArgs[1] as List).cast<int>(),
+        ),
+        'fileRead': ({positionalArgs, namedArgs}) =>
+            host.fileRead('${positionalArgs[0]}'),
+        'fileText': ({positionalArgs, namedArgs}) =>
+            host.fileText('${positionalArgs[0]}'),
+        'fileList': ({positionalArgs, namedArgs}) => host.fileList(
+          positionalArgs.isEmpty ? '' : '${positionalArgs[0]}',
+        ),
+        'fileExists': ({positionalArgs, namedArgs}) =>
+            host.fileExists('${positionalArgs[0]}'),
+        'fileDelete': ({positionalArgs, namedArgs}) =>
+            host.fileDelete('${positionalArgs[0]}'),
+        'fileSize': ({positionalArgs, namedArgs}) =>
+            host.fileSize('${positionalArgs[0]}'),
         // 询问用户：脚本用 .then(...) 接答案；secret: true 时遮挡且不入日志
         // 两种写法都支持：ask('问题', {secret: true}) 与 ask('问题', secret: true)
         'ask': ({positionalArgs, namedArgs}) {

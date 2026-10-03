@@ -26,6 +26,15 @@ class PluginJob {
   }) : rule = ruleJson,
        source = '';
 
+  const PluginJob._raw({
+    required this.source,
+    required this.rule,
+    required this.params,
+    required this.inputs,
+    required this.outputDir,
+    required this.timeout,
+  });
+
   /// Hetu 脚本源码（脚本作业）。
   final String source;
 
@@ -35,6 +44,16 @@ class PluginJob {
   final Map<String, String> params;
   final Map<String, List<int>> inputs;
   final Directory? outputDir;
+
+  /// 复制一份并替换产物目录（执行器用它托管临时工作目录）。
+  PluginJob copyWithOutputDir(Directory dir) => PluginJob._raw(
+        source: source,
+        rule: rule,
+        params: params,
+        inputs: inputs,
+        outputDir: dir,
+        timeout: timeout,
+      );
   final Duration timeout;
 }
 
@@ -87,19 +106,27 @@ class PluginExecutor {
     /// 脚本提问回调（界面弹对话框；为 null 时脚本 ask 得到 {ok:false}）。
     Future<AskReply> Function(AskRequest request)? onAsk,
   }) async {
+    // 脚本总有可完全操控的工作目录：未指定时用本次运行的临时目录，跑完清理。
+    final ownsWorkspace = job.outputDir == null;
+    final workspace = job.outputDir ??
+        Directory(
+          '${Directory.systemTemp.path}/readerplus_script/'
+          '${DateTime.now().microsecondsSinceEpoch}',
+        )..createSync(recursive: true);
+    final jobForRun = job.copyWithOutputDir(workspace);
     final runner = ScriptRunner(
       entry: isolateEntry,
       onLog: onLog,
       onAsk: onAsk,
     );
     final run = await runner.run(
-      job.rule ?? job.source,
-      timeout: job.timeout,
+      jobForRun.rule ?? jobForRun.source,
+      timeout: jobForRun.timeout,
       // 规则作业把 JSON 放进 job['rule']：runner 传的是 source，这里用包装
-      inputs: job.inputs,
-      outputDir: job.outputDir,
-      params: job.params,
-      ruleJson: job.rule,
+      inputs: jobForRun.inputs,
+      outputDir: jobForRun.outputDir,
+      params: jobForRun.params,
+      ruleJson: jobForRun.rule,
       token: token,
     );
     final outputs = <File>[];
@@ -107,7 +134,7 @@ class PluginExecutor {
     if (dir != null && dir.existsSync()) {
       outputs.addAll(dir.listSync().whereType<File>());
     }
-    return PluginJobResult(
+    final result = PluginJobResult(
       ok: run.ok,
       result: run.result,
       error: run.error,
@@ -115,6 +142,13 @@ class PluginExecutor {
       outputs: outputs,
       outputDir: dir,
     );
+    // 自己托管的临时工作目录：读完产物后再清理（调用方自带目录的不动）
+    if (ownsWorkspace) {
+      try {
+        if (workspace.existsSync()) workspace.deleteSync(recursive: true);
+      } catch (_) {}
+    }
+    return result;
   }
 
   /// 在 isolate 内执行声明式规则：按 params.task 分发。

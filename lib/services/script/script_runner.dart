@@ -125,7 +125,7 @@ class ScriptRunner {
     }
 
     try {
-      isolate = await Isolate.spawn<Map<String, Object?>>(_spawnEntry, {
+      final spawned = await Isolate.spawn<Map<String, Object?>>(_spawnEntry, {
         'entry': entry,
         'send': receive.sendPort,
         'job': <String, Object?>{
@@ -136,6 +136,12 @@ class ScriptRunner {
           'params': params,
         },
       });
+      isolate = spawned;
+      // 异常退出（被杀/OOM/未交回 result 就结束）时给出明确结论，而不是一直等到超时
+      spawned.addOnExitListener(
+        receive.sendPort,
+        response: const {'type': 'exit'},
+      );
     } catch (error) {
       receive.close();
       return ScriptRunResult(
@@ -216,6 +222,21 @@ class ScriptRunner {
       if (message is String) {
         logs.add(message);
         onLog?.call(message);
+        return;
+      }
+      if (message is Map && message['type'] == 'exit') {
+        // isolate 结束了却没有交回结果 ⇒ 脚本异常退出
+        isolate = null;
+        receive.close();
+        finish(
+          ScriptRunResult(
+            ok: false,
+            error: '脚本异常退出（isolate 意外结束，未交回结果）',
+            logs: logs,
+            elapsed: DateTime.now().difference(started),
+            cancelled: false,
+          ),
+        );
         return;
       }
       if (message is Map && message['type'] == 'ask') {
