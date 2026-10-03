@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import '../epub/epub_writer.dart';
 import '../source/host_http.dart';
 import '../txt/txt_to_epub.dart';
+import 'crypto_ops.dart';
 
 /// 宿主暴露给脚本的能力面（白名单）。
 ///
@@ -186,8 +187,7 @@ class ScriptHost {
   }
 
   /// 保存产物，返回完整路径。
-  String saveOutput(String name, List<int> bytes) {
-    final dir = outputDir;
+  String saveOutput(String name, List<int> bytes) {    final dir = outputDir;
     if (dir == null) throw StateError('没有产物目录');
     if (!dir.existsSync()) dir.createSync(recursive: true);
     final file = File('${dir.path}/$name');
@@ -237,6 +237,62 @@ class ScriptHost {
         .toList();
     return TxtToEpub.applyRules(text, parsed);
   }
+
+  // ---------- 密码学与压缩（自建/私人书源常用）----------
+
+  /// 摘要：md5 / sha1 / sha256 / sha512，输入按 encoding 解释（utf8/base64/hex）。
+  String digest(String algorithm, Object? input, [String encoding = 'utf8']) =>
+      CryptoOps.digest(algorithm, input, encoding);
+
+  /// HMAC：md5 / sha1 / sha256 / sha512。
+  String hmac(
+    String algorithm,
+    Object? input,
+    Object? key, [
+    String encoding = 'utf8',
+  ]) => CryptoOps.hmac(algorithm, input, key, encoding);
+
+  String base64EncodeBytes(List<int> bytes) => CryptoOps.base64Encode(bytes);
+
+  List<int> base64DecodeText(String text) => CryptoOps.base64Decode(text);
+
+  String hexEncodeBytes(List<int> bytes) => CryptoOps.hexEncode(bytes);
+
+  List<int> hexDecodeText(String text) => CryptoOps.hexDecode(text);
+
+  /// AES：mode=ecb/cbc，padding=pkcs7/none/iso7816，密钥/输入/IV 各自可指定编码。
+  List<int> aesDecrypt(Map<dynamic, dynamic> options) => _aes(options, true);
+
+  List<int> aesEncrypt(Map<dynamic, dynamic> options) => _aes(options, false);
+
+  List<int> _aes(Map<dynamic, dynamic> options, bool decrypt) {
+    String text(Object? value, String fallback) =>
+        value == null ? fallback : '$value';
+    return CryptoOps.aes(
+      data: options['data'],
+      key: options['key'],
+      mode: text(options['mode'], 'cbc'),
+      iv: options['iv'],
+      padding: text(options['padding'], 'pkcs7'),
+      decrypt: decrypt,
+      keyEncoding: text(options['keyEncoding'], 'utf8'),
+      // 未显式指定时由 CryptoOps 按方向取默认（解密 base64 / 加密 utf8）
+      inputEncoding: options['inputEncoding'] == null
+          ? null
+          : text(options['inputEncoding'], 'utf8'),
+      ivEncoding: text(options['ivEncoding'], 'utf8'),
+    );
+  }
+
+  /// 按字节 XOR（key 可反复使用）。
+  List<int> xorBytes(List<int> bytes, Object? key, [String keyEncoding = 'utf8']) =>
+      CryptoOps.xor(bytes, key, keyEncoding);
+
+  /// gzip 解压（响应头缺失或 .gz 文件时用；带 Content-Encoding 的响应已自动解压）。
+  List<int> gunzipBytes(List<int> bytes) => CryptoOps.gunzip(bytes);
+
+  /// gzip 压缩。
+  List<int> gzipBytes(List<int> bytes) => CryptoOps.gzipBytes(bytes);
 
   // ---------- 结果 ----------
   void setResult(Object? value) {

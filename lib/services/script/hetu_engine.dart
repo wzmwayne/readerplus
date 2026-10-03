@@ -119,6 +119,45 @@ class HetuScriptEngine {
           '${positionalArgs[0]}',
           _toSendable(positionalArgs[1]) as List,
         ),
+        // 密码学与压缩：自建/私人书源常用（详见《插件开发指南》）
+        'digest': ({positionalArgs, namedArgs}) => host.digest(
+          '${positionalArgs[0]}',
+          _toSendable(positionalArgs[1]),
+          positionalArgs.length > 2 ? '${positionalArgs[2]}' : 'utf8',
+        ),
+        'hmac': ({positionalArgs, namedArgs}) => host.hmac(
+          '${positionalArgs[0]}',
+          _toSendable(positionalArgs[1]),
+          _toSendable(positionalArgs[2]),
+          positionalArgs.length > 3 ? '${positionalArgs[3]}' : 'utf8',
+        ),
+        'base64Encode': ({positionalArgs, namedArgs}) =>
+            host.base64EncodeBytes((positionalArgs.first as List).cast<int>()),
+        'base64Decode': ({positionalArgs, namedArgs}) =>
+            host.base64DecodeText('${positionalArgs.first}'),
+        'hexEncode': ({positionalArgs, namedArgs}) =>
+            host.hexEncodeBytes((positionalArgs.first as List).cast<int>()),
+        'hexDecode': ({positionalArgs, namedArgs}) =>
+            host.hexDecodeText('${positionalArgs.first}'),
+        'aesDecrypt': ({positionalArgs, namedArgs}) => host.aesDecrypt(
+          (_toSendable(positionalArgs.isEmpty ? namedArgs : positionalArgs.first)
+                  as Map)
+              .cast<dynamic, dynamic>(),
+        ),
+        'aesEncrypt': ({positionalArgs, namedArgs}) => host.aesEncrypt(
+          (_toSendable(positionalArgs.isEmpty ? namedArgs : positionalArgs.first)
+                  as Map)
+              .cast<dynamic, dynamic>(),
+        ),
+        'xorBytes': ({positionalArgs, namedArgs}) => host.xorBytes(
+          (positionalArgs[0] as List).cast<int>(),
+          _toSendable(positionalArgs[1]),
+          positionalArgs.length > 2 ? '${positionalArgs[2]}' : 'utf8',
+        ),
+        'gunzip': ({positionalArgs, namedArgs}) =>
+            host.gunzipBytes((positionalArgs.first as List).cast<int>()),
+        'gzipBytes': ({positionalArgs, namedArgs}) =>
+            host.gzipBytes((positionalArgs.first as List).cast<int>()),
       };
       hetu = Hetu();
       _hetu = hetu;

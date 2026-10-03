@@ -23,6 +23,7 @@ dependencies:
   audioplayers: ^6.8.1
   html: ^0.15.7
   hetu_script: ^0.6.4
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:
