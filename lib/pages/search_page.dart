@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../services/app_log.dart';
 import '../services/plugin/source_service.dart';
+import '../services/plugin/builtin_sources.dart';
 import '../services/plugin/source_store.dart';
 import 'scripts_page.dart';
 import '../state/app_state.dart';
@@ -15,14 +15,6 @@ import '../state/app_state.dart';
 ///
 /// 注意：清洗类脚本（assets/plugins/txt_cleaner.ht）不是书源，不在此列出；
 /// 书架的 TXT 导入已由内置的纯 Dart 管线承担。
-const _builtinSources = <String, ({String name, SourceFormat format, String asset})>{
-  'builtin:fake-source': (
-    name: '内置：本地测试书源',
-    format: SourceFormat.script,
-    asset: 'assets/plugins/fake_source.ht',
-  ),
-};
-
 /// 搜索页：选书源 → 搜索（实时日志）→ 结果 → 详情 → 下载入库。
 ///
 /// 书源（含脚本与规则）的**管理**在「脚本」标签页；这里只负责搜与用。
@@ -50,7 +42,7 @@ class _SearchPageState extends State<SearchPage> {
   List<SourceEntry> _sources = const [];
   final Set<String> _selected = {};
   final List<String> _logs = [];
-  List<({String source, Map<String, String> item})> _results = const [];
+  List<({String sourceId, Map<String, String> item})> _results = const [];
   bool _loading = true;
   bool _running = false;
 
@@ -67,23 +59,15 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _load() async {
-    var entries = await _store.load();
-    // 首次运行：把内置示例写入仓储（与 Python 时代的内置脚本等价）
-    if (entries.isEmpty) {
-      for (final entry in _builtinSources.entries) {
-        final body = await (widget.builtinLoader ?? rootBundle.loadString)(
-          entry.value.asset,
-        );
-        entries = await _store.upsert(
-          SourceEntry(
-            id: entry.key,
-            name: entry.value.name,
-            format: SourceFormat.script,
-            body: body,
-            description: '随应用打包的示例书源',
-          ),
-        );
-      }
+    if (await hasLegacyBuiltin(_store)) {
+      AppLog.info('source', '检测到旧版内置脚本：请清除应用数据后重新进入（不做旧版兼容）');
+    }
+    final changed = await syncBuiltinEntries(
+      _store,
+      loader: widget.builtinLoader,
+    );
+    final entries = await _store.load();
+    if (changed) {
       AppLog.info('source', '已写入 ${entries.length} 条内置条目');
     }
     if (!mounted) return;
@@ -109,7 +93,7 @@ class _SearchPageState extends State<SearchPage> {
         ..add('开始搜索：$query（${picked.length} 个书源）');
     });
 
-    final collected = <({String source, Map<String, String> item})>[];
+    final collected = <({String sourceId, Map<String, String> item})>[];
     for (final entry in picked) {
       if (!mounted) return;
       _append('── ${entry.name} ──');
@@ -120,7 +104,7 @@ class _SearchPageState extends State<SearchPage> {
           onLog: _append,
         );
         for (final item in items) {
-          collected.add((source: entry.name, item: item));
+          collected.add((sourceId: entry.id, item: item));
         }
         _append('完成：${items.length} 条');
       } catch (error) {
@@ -134,6 +118,31 @@ class _SearchPageState extends State<SearchPage> {
       _results = collected;
       _logs.add('全部结束：共 ${collected.length} 条');
     });
+  }
+
+  /// 按脚本分组（保持书源列表顺序，便于对照）。
+  List<
+    ({
+      String id,
+      String name,
+      List<({String sourceId, Map<String, String> item})> items,
+    })
+  >
+  _grouped() {
+    final groups =
+        <
+          ({
+            String id,
+            String name,
+            List<({String sourceId, Map<String, String> item})> items,
+          })
+        >[];
+    for (final entry in _sources) {
+      final items = _results.where((hit) => hit.sourceId == entry.id).toList();
+      if (items.isEmpty) continue;
+      groups.add((id: entry.id, name: entry.name, items: items));
+    }
+    return groups;
   }
 
   void _append(String message) {
@@ -306,7 +315,7 @@ class _SearchPageState extends State<SearchPage> {
                     subtitle: Text(
                       '${entry.format == SourceFormat.script ? '脚本' : '规则'}'
                       ' · ${entry.kind.label}'
-                      ' · ${entry.capabilities.join('/')}',
+                      ' · ${entry.kind.label}',
                     ),
 
                   ),
@@ -341,25 +350,42 @@ class _SearchPageState extends State<SearchPage> {
                   ),
                 if (_results.isNotEmpty) ...[
                   const Divider(),
-                  ListTile(dense: true, title: Text('结果（${_results.length}）')),
-                  for (final hit in _results)
-                    ListTile(
-                      title: Text(hit.item['title'] ?? ''),
-                      subtitle: Text(
-                        '${hit.item['author'] ?? ''} · id: ${hit.item['id'] ?? ''}\n${hit.item['intro'] ?? ''}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                  ListTile(
+                    dense: true,
+                    title: Text('结果（${_results.length}）'),
+                    subtitle: const Text('按脚本分组：每条结果都用搜出它的脚本取详情与下载'),
+                  ),
+                  for (final group in _grouped())
+                    ...[
+                      ListTile(
+                        dense: true,
+                        tileColor:
+                            Theme.of(context).colorScheme.surfaceContainerHighest,
+                        leading: const Icon(Icons.extension_outlined, size: 18),
+                        title: Text('${group.name}（${group.items.length} 条）'),
                       ),
-                      isThreeLine: true,
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
-                        final entry = _sources.firstWhere(
-                          (e) => e.name == hit.source,
-                          orElse: () => _sources.first,
-                        );
-                        _openDetail(entry, hit.item);
-                      },
-                    ),
+                      for (final hit in group.items)
+                        ListTile(
+                          title: Text(hit.item['title'] ?? ''),
+                          subtitle: Text(
+                            '${hit.item['author'] ?? ''} · id: ${hit.item['id'] ?? ''}\n${hit.item['intro'] ?? ''}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          isThreeLine: true,
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            final matches = _sources.where(
+                              (e) => e.id == hit.sourceId,
+                            );
+                            if (matches.isEmpty) {
+                              _append('该脚本已不可用，无法取详情');
+                              return;
+                            }
+                            _openDetail(matches.first, hit.item);
+                          },
+                        ),
+                    ],
                 ],
                 const SizedBox(height: 24),
               ],

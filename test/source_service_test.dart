@@ -40,7 +40,6 @@ void main() {
     expect(after.first.format, SourceFormat.rule);
     expect(after.first.kind, ScriptKind.source);
     expect(after.first.isSource, isTrue);
-    expect(after.first.capabilities, {'search'});
 
     // 明确声明 kind=source 的脚本才会被当成书源
     await store.upsert(

@@ -37,23 +37,6 @@ class SourceEntry {
   /// 是否为书源（只有 kind=source 才会出现在书源页，避免脚本被错用）。
   bool get isSource => kind == ScriptKind.source;
 
-  Set<String> get capabilities {
-    if (format == SourceFormat.script) {
-      // 脚本自行按 task 分发，三种能力都可尝试
-      return const {'search', 'detail', 'download'};
-    }
-    try {
-      final decoded = jsonDecode(body);
-      if (decoded is! Map) return const {'search'};
-      return {
-        'search',
-        if (decoded['detail'] != null) 'detail',
-        if (decoded['download'] != null) 'download',
-      };
-    } catch (_) {
-      return const {'search'};
-    }
-  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -68,7 +51,8 @@ class SourceEntry {
 
   static SourceEntry fromJson(Map<String, dynamic> json) {
     final body = '${json['body'] ?? ''}';
-    final format = '${json['format'] ?? json['kind']}' == 'rule'
+    // 不做旧版兼容：只认当前字段；旧数据请清除应用数据后重建
+    final format = '${json['format']}' == 'rule'
         ? SourceFormat.rule
         : SourceFormat.script;
     // 类型以脚本内声明为准（编辑/手改后自动同步），规则固定为书源

@@ -5,24 +5,19 @@ import 'package:flutter/foundation.dart';
 import '../models/app_settings.dart';
 import '../models/book.dart';
 import '../models/reader_settings.dart';
-import '../services/backup_service.dart';
 import '../services/library_repository.dart';
 import '../services/app_log.dart';
 import '../services/storage.dart';
-import '../services/sync_service.dart';
 
-/// 全局状态：书架、设置、同步。
+/// 全局状态：书架与设置。
 class AppState extends ChangeNotifier {
   AppState();
 
   late Storage storage;
   late LibraryRepository library;
-  late BackupService backup;
-  late SyncService sync;
 
   AppSettings settings = AppSettings();
   ReaderSettings readerSettings = ReaderSettings();
-  WebDavConfig webdav = WebDavConfig();
 
   bool ready = false;
   bool busy = false;
@@ -33,8 +28,6 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     storage = await Storage.instance();
     library = LibraryRepository(storage);
-    backup = BackupService(storage);
-    sync = SyncService(storage);
 
     await library.load();
     final settingsJson = await storage.readJson('settings.json');
@@ -48,9 +41,6 @@ class AppState extends ChangeNotifier {
         night: readerSettings.nightMode,
       );
     }
-    final webdavJson = await storage.readJson('webdav.json');
-    if (webdavJson != null) webdav = WebDavConfig.fromJson(webdavJson);
-
     ready = true;
     AppLog.info('app', '初始化完成：书籍 ${books.length} 本');
     notifyListeners();
@@ -69,11 +59,6 @@ class AppState extends ChangeNotifier {
 
   Future<void> saveReaderSettings() async {
     await storage.writeJson('reader_settings.json', readerSettings.toJson());
-    notifyListeners();
-  }
-
-  Future<void> saveWebdav() async {
-    await storage.writeJson('webdav.json', webdav.toJson());
     notifyListeners();
   }
 
@@ -121,74 +106,5 @@ class AppState extends ChangeNotifier {
       progress: progress,
     );
     notifyListeners();
-  }
-
-  Future<String> exportBackupTo(File target) async {
-    final bytes = await backup.export();
-    await target.writeAsBytes(bytes, flush: true);
-    return target.path;
-  }
-
-  Future<int> importBackupFrom(File source) async {
-    final bytes = await source.readAsBytes();
-    final count = await backup.import(bytes);
-    await library.load();
-    final settingsJson = await storage.readJson('settings.json');
-    if (settingsJson != null) settings = AppSettings.fromJson(settingsJson);
-    final readerJson = await storage.readJson('reader_settings.json');
-    if (readerJson != null) readerSettings = ReaderSettings.fromJson(readerJson);
-    notifyListeners();
-    return count;
-  }
-
-  Future<bool> testWebdav() async {
-    busy = true;
-    notifyListeners();
-    try {
-      final ok = await sync.test(webdav);
-      _notify(ok ? '连接成功' : '连接失败：请检查地址与账号');
-      return ok;
-    } catch (e) {
-      _notify('连接失败：$e');
-      return false;
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> syncUpload() async {
-    await saveSettings();
-    await saveReaderSettings();
-    busy = true;
-    notifyListeners();
-    try {
-      await sync.upload(webdav);
-      _notify('已上传到 WebDAV');
-    } catch (e) {
-      _notify('上传失败：$e');
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> syncDownload() async {
-    busy = true;
-    notifyListeners();
-    try {
-      final count = await sync.download(webdav);
-      await library.load();
-      final settingsJson = await storage.readJson('settings.json');
-      if (settingsJson != null) settings = AppSettings.fromJson(settingsJson);
-      final readerJson = await storage.readJson('reader_settings.json');
-      if (readerJson != null) readerSettings = ReaderSettings.fromJson(readerJson);
-      _notify('已从 WebDAV 恢复 $count 个文件');
-    } catch (e) {
-      _notify('下载失败：$e');
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
   }
 }

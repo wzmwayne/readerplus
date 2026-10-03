@@ -185,7 +185,7 @@ class _ScriptsPageState extends State<ScriptsPage> {
           child: SingleChildScrollView(
             child: SelectableText(
               '类型：${meta.kind.label}'
-              '${meta.capabilities.isEmpty ? '' : ' · 能力 ${meta.capabilities.join('/')}'}\n\n'
+              '${entry.format == SourceFormat.rule ? '（规则）' : '（脚本）'}\n\n'
               '${entry.body}',
               style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             ),
@@ -273,7 +273,7 @@ result('ok')
                               title: Text(script.name),
                               subtitle: Text(
                                 '${script.format == SourceFormat.rule ? '规则' : '脚本'}'
-                                ' · ${script.capabilities.isEmpty ? '未声明能力' : script.capabilities.join('/')}'
+                                ' · ${script.kind.label}'
                                 '${script.description.isEmpty ? '' : ' · ${script.description}'}',
                               ),
                               onTap: () => _view(script),

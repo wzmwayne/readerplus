@@ -8,7 +8,6 @@ class AppSettings {
   int gridColumnsLandscape;
   String sortMode;
   String tocRulePattern;
-  bool autoBackup;
 
   /// 竖屏底部标签是否显示文字（默认只显示图标）。
   bool portraitLabels;
@@ -26,7 +25,6 @@ class AppSettings {
     this.gridColumnsLandscape = 6,
     this.sortMode = 'recent',
     this.tocRulePattern = '',
-    this.autoBackup = true,
     this.portraitLabels = false,
     this.landscapeExpanded = false,
     this.scriptSandboxAudit = true,
@@ -39,7 +37,6 @@ class AppSettings {
     'gridColumnsLandscape': gridColumnsLandscape,
     'sortMode': sortMode,
     'tocRulePattern': tocRulePattern,
-    'autoBackup': autoBackup,
     'portraitLabels': portraitLabels,
     'landscapeExpanded': landscapeExpanded,
       'scriptSandboxAudit': scriptSandboxAudit,
@@ -62,45 +59,9 @@ class AppSettings {
     ),
     sortMode: json['sortMode'] as String? ?? 'recent',
     tocRulePattern: json['tocRulePattern'] as String? ?? '',
-    autoBackup: json['autoBackup'] as bool? ?? true,
     portraitLabels: json['portraitLabels'] as bool? ?? false,
     landscapeExpanded: json['landscapeExpanded'] as bool? ?? false,
       scriptSandboxAudit: json['scriptSandboxAudit'] as bool? ?? true,
-  );
-}
-
-/// WebDAV 同步配置。
-class WebDavConfig {
-  String url;
-  String username;
-  String password;
-  String remoteDir;
-  bool enabled;
-
-  WebDavConfig({
-    this.url = '',
-    this.username = '',
-    this.password = '',
-    this.remoteDir = 'reader-sync',
-    this.enabled = false,
-  });
-
-  bool get configured => url.trim().isNotEmpty;
-
-  Map<String, dynamic> toJson() => {
-    'url': url,
-    'username': username,
-    'password': password,
-    'remoteDir': remoteDir,
-    'enabled': enabled,
-  };
-
-  factory WebDavConfig.fromJson(Map<String, dynamic> json) => WebDavConfig(
-    url: json['url'] as String? ?? '',
-    username: json['username'] as String? ?? '',
-    password: json['password'] as String? ?? '',
-    remoteDir: json['remoteDir'] as String? ?? 'reader-sync',
-    enabled: json['enabled'] as bool? ?? false,
   );
 }
 

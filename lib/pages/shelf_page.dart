@@ -41,9 +41,9 @@ class _ShelfPageState extends State<ShelfPage> {
       if (picked.path.toLowerCase().endsWith('.txt')) {
         final bytes = await TxtToEpub.fromFile(
           picked,
+          // 只做规范化（去零宽/BOM），不删正文内容
           rules: const [
             [r'[\u200b\ufeff]', ''],
-            [r'(?m)^\s*(广告|推广)[:：].*$', ''],
           ],
         );
         final dir = Directory(

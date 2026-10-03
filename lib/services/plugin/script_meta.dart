@@ -1,12 +1,14 @@
 /// 脚本声明：写在脚本**头部注释**里，由纯 Dart 静态解析（不执行代码）。
 ///
 /// 写法（单行）：
-///   // @script kind=source name="本地测试书源" capabilities=search,detail,download
+///   // @script kind=source name="本地测试书源"
 ///
 /// 写法（多行续写，后面的行只写 key=value）：
 ///   // @script kind=clean
 ///   // name="TXT 清洗转 EPUB"
-///   // capabilities=clean
+///
+/// 只声明**类型**：能力不由脚本声明（书源天然具备 search/detail/download）。
+/// 未声明或写错类型 ⇒ 一律 tool（最保守，不会被误当书源）。
 ///
 /// `kind` 决定它出现在哪个入口，避免被错用：
 ///   - source：书源（搜索 / 详情 / 下载）
@@ -16,14 +18,13 @@ class ScriptMeta {
   const ScriptMeta({
     this.kind = ScriptKind.tool,
     this.name,
-    this.capabilities = const <String>{},
     this.description,
     this.raw = const <String, String>{},
   });
 
+  /// 脚本类型：只由 `kind` 决定；**未声明或未知类型一律 tool**（为将来扩展留余地）。
   final ScriptKind kind;
   final String? name;
-  final Set<String> capabilities;
   final String? description;
   final Map<String, String> raw;
 
@@ -62,11 +63,6 @@ class ScriptMeta {
     return ScriptMeta(
       kind: ScriptKind.parse(fields['kind']),
       name: fields['name'],
-      capabilities: (fields['capabilities'] ?? fields['capability'] ?? '')
-          .split(RegExp(r'[,/|]'))
-          .map((item) => item.trim().toLowerCase())
-          .where((item) => item.isNotEmpty)
-          .toSet(),
       description: fields['description'],
       raw: Map.unmodifiable(fields),
     );

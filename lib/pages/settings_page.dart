@@ -1,6 +1,3 @@
-import 'dart:io';
-
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,16 +8,9 @@ import 'developer_page.dart';
 import 'scripts_page.dart';
 import 'settings_read_aloud_section.dart';
 import '../theme/app_theme.dart';
-import 'webdav_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
-
-  static const _zipTypeGroup = XTypeGroup(
-    label: '备份文件',
-    extensions: ['zip'],
-    mimeTypes: ['application/zip'],
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -117,47 +107,7 @@ class SettingsPage extends StatelessWidget {
             ),
           ),
           const Divider(),
-          const Divider(),
           const SettingsReadAloudSection(),
-          const Divider(),
-          const _SectionTitle('脚本插件'),
-          SwitchListTile(
-            secondary: const Icon(Icons.shield_outlined),
-            title: const Text('沙盒审计'),
-            subtitle: const Text('禁止脚本访问沙盒外的文件（建议开启）'),
-            value: state.settings.scriptSandboxAudit,
-            onChanged: (value) {
-              state.settings.scriptSandboxAudit = value;
-              state.saveSettings();
-            },
-          ),
-          const Divider(),
-          const _SectionTitle('数据与同步'),
-          ListTile(
-            leading: const Icon(Icons.upload_file_outlined),
-            title: const Text('导出备份'),
-            subtitle: const Text('导出为单个 zip 备份包'),
-            onTap: () => _export(context),
-          ),
-          ListTile(
-            leading: const Icon(Icons.download_outlined),
-            title: const Text('导入备份'),
-            subtitle: const Text('从备份包恢复书架与设置'),
-            onTap: () => _import(context),
-          ),
-          ListTile(
-            leading: const Icon(Icons.cloud_outlined),
-            title: const Text('WebDAV 同步'),
-            subtitle: Text(
-              state.webdav.configured ? state.webdav.url : '未配置',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const WebDavPage()),
-            ),
-          ),
           const Divider(),
           const _SectionTitle('关于'),
           const ListTile(
@@ -168,8 +118,8 @@ class SettingsPage extends StatelessWidget {
           const ListTile(
             title: Text('数据格式'),
             subtitle: Text(
-              '自定义 JSON（library / settings / reader_settings / webdav / sources）'
-              '＋ zip 备份包，保存在应用私有目录',
+              '自定义 JSON（library / settings / reader_settings / sources）'
+              '，保存在应用私有目录',
             ),
           ),
           const ListTile(
@@ -197,34 +147,6 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
-  Future<void> _export(BuildContext context) async {
-    final state = context.read<AppState>();
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final location = await getSaveLocation(
-        suggestedName: 'reader-backup.zip',
-        acceptedTypeGroups: const [_zipTypeGroup],
-      );
-      if (location == null) return;
-      final path = await state.exportBackupTo(File(location.path));
-      messenger.showSnackBar(SnackBar(content: Text('已导出到 $path')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('导出失败：$e')));
-    }
-  }
-
-  Future<void> _import(BuildContext context) async {
-    final state = context.read<AppState>();
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final file = await openFile(acceptedTypeGroups: const [_zipTypeGroup]);
-      if (file == null) return;
-      final count = await state.importBackupFrom(File(file.path));
-      messenger.showSnackBar(SnackBar(content: Text('已恢复 $count 个文件')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('导入失败：$e')));
-    }
-  }
 }
 
 class _SectionTitle extends StatelessWidget {

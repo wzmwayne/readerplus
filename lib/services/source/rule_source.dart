@@ -55,12 +55,6 @@ class RuleSource {
   final RuleRequest? detail;
   final RuleRequest? download;
 
-  Set<String> get capabilities => {
-    'search',
-    if (detail != null) 'detail',
-    if (download != null) 'download',
-  };
-
   static RuleSource? parse(String text) {
     try {
       final decoded = jsonDecode(text);
@@ -76,7 +70,9 @@ class RuleSource {
         description: (map['description'] ?? '').toString(),
         search: RuleRequest.fromJson(searchRaw.cast<String, dynamic>()),
         detail: map['detail'] is Map
-            ? RuleRequest.fromJson((map['detail'] as Map).cast<String, dynamic>())
+            ? RuleRequest.fromJson(
+                (map['detail'] as Map).cast<String, dynamic>(),
+              )
             : null,
         download: map['download'] is Map
             ? RuleRequest.fromJson(

@@ -1,13 +1,13 @@
-// @script kind=clean name="TXT 清洗转 EPUB" capabilities=clean
+// @script kind=clean name="TXT 清洗转 EPUB"
 // 说明：kind=clean ⇒ 出现在「脚本管理」的清洗分类，不会出现在书源页
 // 内置示例：TXT 清洗转 EPUB
 // 能力：inputText / cleanText / splitChapters / epubBuild / saveOutput / log / result
 var text = inputText('raw.txt')
 
 // 清洗：去零宽字符与广告行（内联标志 (?m)/(?i)/(?s) 均支持）
+// 只做规范化（去零宽/BOM），**不删任何正文内容**（包括广告行）
 text = cleanText(text, [
-  ['[\\u200b\\ufeff]', ''],
-  ['(?m)^\\s*(广告|推广)[:：].*$', '']
+  ['[\\u200b\\ufeff]', '']
 ])
 
 var chapters = splitChapters(text, '^第[一二三四五六七八九十百千两0-9]+[章回节卷].*$')

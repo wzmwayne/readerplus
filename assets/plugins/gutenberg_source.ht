@@ -1,0 +1,84 @@
+// @script kind=source name="古腾堡（公共领域示例）"
+// 说明：这是一个可直接使用的书源测试脚本，抓取 Project Gutenberg（公共领域图书）
+//       的公开接口 Gutendex。不抓取任何受版权保护的内容。
+//
+// 约定回顾：
+//   - 三种任务由 param('task') 区分：search / detail / download
+//   - 异步用 .then(callback)，回调必须用花括号函数体
+//   - 字符串与数字不能相加，用插值 "...${n}..."
+//   - 搜索交回 {items:[{id,title,author,cover,intro}]}，id 必填
+//   - 详情交回 {id,title,author,description,cover}
+//   - 下载交回 {chapters:[{title,body}]}
+
+var task = param('task', 'search')
+var api = 'https://gutendex.com/books/'
+
+if (task == 'search') {
+  var q = param('query', '')
+  var page = param('page', '1')
+  var url = 'https://gutendex.com/books?search=' + urlEncode(q) + '&page=' + page
+  log('请求：' + url)
+  httpGet(url).then((response) {
+    if (response['status'] != 200) {
+      throw "接口返回 ${response['status']}"
+    }
+    var data = JSON.parse(response['text'])
+    var results = data['results']
+    var items = []
+    for (var i = 0; i < results.length; i = i + 1) {
+      var book = results[i]
+      var item = {}
+      item['id'] = "${book['id']}"
+      item['title'] = book['title']
+      var authors = book['authors']
+      item['author'] = authors.length > 0 ? authors[0]['name'] : '佚名'
+      var formats = book['formats']
+      item['cover'] = formats['image/jpeg'] == null ? '' : formats['image/jpeg']
+      var subjects = book['subjects']
+      item['intro'] = subjects.length > 0 ? subjects[0] : ''
+      items.add(item)
+    }
+    log("命中 ${items.length} 条（共 ${data['count']} 条可搜索）")
+    var payload = {}
+    payload['items'] = items
+    result(payload)
+  })
+} else if (task == 'detail') {
+  var id = param('id', '')
+  httpGet(api + id).then((response) {
+    var book = JSON.parse(response['text'])
+    var formats = book['formats']
+    var summaries = book['summaries']
+    var authors = book['authors']
+    var payload = {}
+    payload['id'] = id
+    payload['title'] = book['title']
+    payload['author'] = authors.length > 0 ? authors[0]['name'] : '佚名'
+    payload['description'] = summaries.length > 0 ? summaries[0] : ''
+    payload['cover'] = formats['image/jpeg'] == null ? '' : formats['image/jpeg']
+    result(payload)
+  })
+} else {
+  var id = param('id', '')
+  httpGet(api + id).then((response) {
+    var book = JSON.parse(response['text'])
+    var formats = book['formats']
+    var textUrl = formats['text/plain; charset=utf-8']
+    if (textUrl == null) {
+      throw '这本书没有纯文本格式'
+    }
+    log('下载正文：' + textUrl)
+    httpGet(textUrl).then((textResponse) {
+      var text = textResponse['text']
+      var chapters = splitChapters(text, '^CHAPTER [IVXLC]+\\.?.*$')
+      if (chapters.length == 0) {
+        chapters = splitChapters(text, '^Chapter [0-9]+.*$')
+      }
+      log("切分得到 ${chapters.length} 章")
+      var payload = {}
+      payload['id'] = id
+      payload['chapters'] = chapters
+      result(payload)
+    })
+  })
+}

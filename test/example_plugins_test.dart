@@ -47,7 +47,8 @@ void main() {
       '第三章 山中客',
     ]);
     expect(book.content, contains('更夫敲梆子'));
-    expect(book.content, isNot(contains('广告：')));
+    // 清洗只做规范化（去零宽/BOM），**不删正文内容**：广告行必须保留
+    expect(book.content, contains('广告：'), reason: '内置清洗脚本不应删除正文内容');
     await outDir.delete(recursive: true);
   });
 

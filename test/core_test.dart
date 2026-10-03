@@ -5,8 +5,6 @@ import 'package:fast_gbk/fast_gbk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader/reader/chapter_paginator.dart';
-import 'package:reader/services/backup_service.dart';
-import 'package:reader/services/storage.dart';
 import 'package:reader/services/txt_importer.dart';
 
 const _sample = '''
@@ -99,52 +97,6 @@ void main() {
       );
       expect(pages.length, 1);
       expect(pages.single.paragraphs, isEmpty);
-    });
-  });
-
-  group('备份格式', () {
-    late Directory rootA;
-    late Directory rootB;
-
-    setUp(() async {
-      rootA = await Directory.systemTemp.createTemp('reader_a');
-      rootB = await Directory.systemTemp.createTemp('reader_b');
-    });
-
-    tearDown(() async {
-      for (final d in [rootA, rootB]) {
-        if (await d.exists()) await d.delete(recursive: true);
-      }
-    });
-
-    test('导出后导入可还原全部文件', () async {
-      Storage.overrideRoot(rootA);
-      final storageA = await Storage.instance();
-      await storageA.writeJson('library.json', {
-        'format': 'wzmwayne.reader.library',
-        'version': 1,
-        'books': [
-          {'id': 'b1', 'title': '测试书'},
-        ],
-      });
-      await storageA.writeText('books/b1/content.txt', '正文内容');
-      await storageA.writeJson('books/b1/chapters.json', {
-        'bookId': 'b1',
-        'chapters': [
-          {'index': 0, 'title': '第一章', 'start': 0, 'end': 4},
-        ],
-      });
-
-      final bytes = await BackupService(storageA).export();
-      expect(bytes.length, greaterThan(0));
-
-      Storage.overrideRoot(rootB);
-      final storageB = await Storage.instance();
-      final count = await BackupService(storageB).import(bytes);
-      expect(count, 3);
-      expect(await storageB.readText('books/b1/content.txt'), '正文内容');
-      final lib = await storageB.readJson('library.json');
-      expect(lib?['books'], isA<List>());
     });
   });
 }

@@ -9,7 +9,7 @@ import 'package:path_provider/path_provider.dart';
 ///   library.json            书架索引
 ///   settings.json           应用设置
 ///   reader_settings.json    阅读设置
-///   webdav.json             WebDAV 配置
+///   sources.json            脚本/规则书源
 ///   `books/<id>/chapters.json`  章节目录
 ///   `books/<id>/content.txt`    正文
 class Storage {

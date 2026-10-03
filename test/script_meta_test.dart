@@ -11,7 +11,7 @@ print('hi')
 ''');
     expect(meta.kind, ScriptKind.source);
     expect(meta.name, '本地测试书源');
-    expect(meta.capabilities, {'search', 'detail', 'download'});
+
   });
 
   test('解析多行续写与冒号写法；大小写不敏感', () {
@@ -22,13 +22,12 @@ print('hi')
 ''');
     expect(meta.kind, ScriptKind.clean);
     expect(meta.name, 'TXT 清洗转 EPUB');
-    expect(meta.capabilities, {'clean'});
+
   });
 
   test('没有声明时按最保守的 tool 处理（不会被当成书源）', () {
     final meta = ScriptMeta.parse('log("no declaration")');
     expect(meta.kind, ScriptKind.tool);
-    expect(meta.capabilities, isEmpty);
   });
 
   test('解析不执行代码：语法错误的脚本也能读出声明', () {
