@@ -49,11 +49,27 @@ class _ScriptsPageState extends State<ScriptsPage> {
   }
 
   Future<void> _import() async {
-    const group = XTypeGroup(label: '脚本或规则', extensions: ['ht', 'json']);
+    // 插件页只放行脚本(.ht)与规则(.json)；MIME 里加 octet-stream
+    // 是因为 .ht 是自定义后缀，Android 只会报 application/octet-stream
+    const group = XTypeGroup(
+      label: '脚本或规则',
+      extensions: ['ht', 'json'],
+      mimeTypes: ['application/json', 'text/plain', 'application/octet-stream'],
+    );
     final file = await openFile(acceptedTypeGroups: const [group]);
     if (file == null || !mounted) return;
+    final name = file.name.toLowerCase();
+    if (!name.endsWith('.ht') && !name.endsWith('.json')) {
+      AppLog.info('script', '拒绝导入：插件页只接受 .ht 脚本与 .json 规则');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('插件页只接受 .ht 脚本或 .json 规则')),
+        );
+      }
+      return;
+    }
     final body = await File(file.path).readAsString();
-    final isRule = file.name.toLowerCase().endsWith('.json');
+    final isRule = name.endsWith('.json');
     final meta = ScriptMeta.parse(body);
     await _store.upsert(
       SourceEntry(

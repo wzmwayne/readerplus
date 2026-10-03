@@ -26,13 +26,16 @@ class _ShelfPageState extends State<ShelfPage> {
   static const _bookTypeGroup = XTypeGroup(
     label: '电子书',
     extensions: ['txt', 'epub'],
-    // 部分文件管理器/网盘给出的 MIME 是 octet-stream，放宽以免选不到文件
-    mimeTypes: [
-      'text/plain',
-      'application/epub+zip',
-      'application/octet-stream',
-    ],
+    // 严格只放行这两种：不加 application/octet-stream，
+    // 否则 Android 选择器会放行一切文件（连 .ht 脚本都能选）
+    mimeTypes: ['text/plain', 'application/epub+zip'],
   );
+
+  /// 书架只接受 txt / epub；其它后缀（例如误选的 .ht 脚本）明确拒绝并提示。
+  static bool _isBookFile(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.txt') || lower.endsWith('.epub');
+  }
 
   Future<void> _importBook() async {
     AppLog.info('shelf', '点击导入书籍');
@@ -45,6 +48,17 @@ class _ShelfPageState extends State<ShelfPage> {
       }
       final picked = File(file.path);
       AppLog.info('shelf', '选择文件：${picked.path}');
+      if (!_isBookFile(picked.path)) {
+        AppLog.info('shelf', '拒绝导入：书架只接受 txt/epub（脚本请在「插件」页导入）');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('书架只支持 txt / epub；脚本或规则请在「插件」页导入'),
+            ),
+          );
+        }
+        return;
+      }
       // TXT：纯 Dart 管线（编码探测 → 规则清洗 → 分章 → EPUB 3 → 入库）
       // EPUB：直接导入
       if (picked.path.toLowerCase().endsWith('.txt')) {
