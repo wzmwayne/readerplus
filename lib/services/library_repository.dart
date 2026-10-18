@@ -151,6 +151,20 @@ class LibraryRepository {
     await save();
   }
 
+  /// 标记某章已读；返回 true 表示状态有变化（已读过则不重复落盘）。
+  Future<bool> markChapterRead(Book book, int index) async {
+    if (!book.markChapterRead(index)) return false;
+    await save();
+    return true;
+  }
+
+  /// 切换某章的已读/未读；返回切换后的状态。
+  Future<bool> toggleChapterRead(Book book, int index) async {
+    final read = book.toggleChapterRead(index);
+    await save();
+    return read;
+  }
+
   List<Book> sorted(String sortMode) {
     final list = [...books];
     switch (sortMode) {

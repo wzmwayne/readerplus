@@ -21,6 +21,9 @@ class Book {
   DateTime addedAt;
   DateTime? lastReadAt;
 
+  /// 已读章节下标集合（进入该章即记一次；随 library.json 持久化，删书一并清除）。
+  final Set<int> readChapters;
+
   Book({
     required this.id,
     required this.title,
@@ -38,7 +41,19 @@ class Book {
     this.progress = 0,
     DateTime? addedAt,
     this.lastReadAt,
-  }) : addedAt = addedAt ?? DateTime.now();
+    Set<int>? readChapters,
+  }) : addedAt = addedAt ?? DateTime.now(),
+       readChapters = readChapters ?? <int>{};
+
+  /// 该章是否已读。
+  bool isChapterRead(int index) => readChapters.contains(index);
+
+  /// 标记已读；返回 true 表示状态真的变了（调用方据此决定是否落盘）。
+  bool markChapterRead(int index) => readChapters.add(index);
+
+  /// 切换已读/未读；返回切换后的状态。
+  bool toggleChapterRead(int index) =>
+      readChapters.remove(index) ? false : readChapters.add(index);
 
   static final Random _random = Random();
 
@@ -66,6 +81,8 @@ class Book {
     'progress': progress,
     'addedAt': addedAt.toIso8601String(),
     'lastReadAt': lastReadAt?.toIso8601String(),
+    // 已读章节：排好序再写，便于人工查看 diff；空集合也写（保持字段稳定）
+    'readChapters': (readChapters.toList()..sort()),
   };
 
   factory Book.fromJson(Map<String, dynamic> json) => Book(
@@ -85,6 +102,11 @@ class Book {
     progress: (json['progress'] as num?)?.toDouble() ?? 0,
     addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ?? DateTime.now(),
     lastReadAt: DateTime.tryParse(json['lastReadAt'] as String? ?? ''),
+    // 兼容旧数据：缺字段 ⇔ 空集合
+    readChapters: {
+      for (final value in (json['readChapters'] as List?) ?? const [])
+        if (value is num) value.toInt(),
+    },
   );
 }
 

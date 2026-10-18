@@ -614,6 +614,11 @@ class _ReaderPageState extends State<ReaderPage>
 
   Future<void> _persistProgress() async {
     if (_chapters.isEmpty) return;
+    // 进入某章即记已读（翻页、目录跳转、滑块、进度恢复都会经过这里 ⇒ 单点覆盖）
+    final visibleChapter = _rs.pageMode == PageMode.scroll
+        ? _chapterIndex
+        : (_current?.chapter ?? _chapterIndex);
+    unawaited(_app.markChapterRead(widget.book, visibleChapter));
     if (_rs.pageMode == PageMode.scroll) {
       final rs = _rs;
       final line = _lineOfParagraph(_chapterIndex, _scrollParagraphIndex, rs);
@@ -1471,6 +1476,11 @@ class _ReaderPageState extends State<ReaderPage>
                   itemCount: _chapters.length,
                   itemBuilder: (context, i) {
                     final selected = i == _chapterIndex;
+                    // 已读章节：文字置灰 + 删除线；当前章仍用主题色，避免看不出位置
+                    final read = widget.book.isChapterRead(i);
+                    final baseColor = selected
+                        ? Theme.of(context).colorScheme.primary
+                        : fg;
                     return ListTile(
                       dense: true,
                       title: Text(
@@ -1478,13 +1488,21 @@ class _ReaderPageState extends State<ReaderPage>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: selected
-                              ? Theme.of(context).colorScheme.primary
-                              : fg,
+                          color: read && !selected
+                              ? fg.withValues(alpha: 0.45)
+                              : baseColor,
                           fontSize: 14,
+                          decoration: read ? TextDecoration.lineThrough : null,
+                          decorationColor: baseColor.withValues(alpha: 0.6),
                         ),
                       ),
                       onTap: () => _goChapter(i),
+                      // 长按切换已读/未读（修正误判用）；样式即时变化即为反馈
+                      onLongPress: () async {
+                        await _app.toggleChapterRead(widget.book, i);
+                        if (!mounted) return;
+                        setState(() {});
+                      },
                     );
                   },
                 ),

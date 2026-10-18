@@ -107,4 +107,17 @@ class AppState extends ChangeNotifier {
     );
     notifyListeners();
   }
+
+  /// 进入章节即记一次已读。刻意不 notifyListeners：
+  /// 阅读过程中每次翻页都会调用，通知会带来无谓的全树重建；
+  /// 目录在打开时自会读到最新状态。
+  Future<void> markChapterRead(Book book, int index) =>
+      library.markChapterRead(book, index);
+
+  /// 目录长按切换已读/未读；返回切换后的状态。
+  Future<bool> toggleChapterRead(Book book, int index) async {
+    final read = await library.toggleChapterRead(book, index);
+    notifyListeners();
+    return read;
+  }
 }
