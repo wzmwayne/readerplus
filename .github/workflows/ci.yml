@@ -38,6 +38,10 @@ on:
         description: 同时构建发行版（Release 多架构 APK / 桌面 Release + AppImage）
         type: boolean
         default: false
+      publish_release:
+        description: 构建完成后创建 GitHub Release 并上传 APK（tag=v<自动版本>）
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -180,6 +184,50 @@ jobs:
           path: build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
           retention-days: 30
+
+  release:
+    name: 发布 Release
+    runs-on: ubuntu-24.04
+    needs: [analyze, android]
+    if: ${{ inputs.publish_release && needs.android.result == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - name: 取回本次构建的 APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --name readerplus-android-apk \
+            --dir apk
+          ls -l apk
+      - name: 创建 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ needs.analyze.outputs.version }}"
+          CODE="${{ needs.analyze.outputs.code }}"
+          TAG="v$VERSION"
+          cat > notes.md <<EOF
+          readerplus 自动构建 **$VERSION**（versionCode $CODE）
+
+          本次构建目标：debug（arm64）$([ "${{ inputs.build_release }}" = "true" ] && echo '＋ Release（多架构）' || echo '；未构建 Release'）
+
+          提交：${{ github.sha }}
+
+          ### 本版要点
+          - 朗读：改用 Sec-MS-GEC v2 令牌，修复「合成失败」（网关 403）
+          - 已读章节：进入即记录，目录灰字+删除线，长按切换已读/未读
+          - 脚本：网络/解密异常降级不再整体崩溃；未捕获异常显示真实原因与堆栈
+
+          > 安装包为 CI 产出，签名固定，可直接覆盖安装。
+          EOF
+          gh release create "$TAG" apk/*.apk \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "readerplus $VERSION" \
+            --notes-file notes.md
 
   linux:
     name: Linux 桌面
