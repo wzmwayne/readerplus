@@ -3,11 +3,11 @@ import 'package:reader/models/reader_settings.dart';
 import 'package:reader/services/tts/edge_tts_client.dart';
 
 void main() {
-  group('Sec-MS-GEC 令牌', () {
-    test('为 64 位大写十六进制', () {
+  group('Sec-MS-GEC 令牌（v2）', () {
+    test('为「16 位 CS64-64 位 SHA256」大写十六进制', () {
       final token = EdgeTtsClient.secMsGec(DateTime.utc(2026, 9, 30, 12, 0, 0));
-      expect(token.length, 64);
-      expect(RegExp(r'^[0-9A-F]{64}$').hasMatch(token), isTrue);
+      expect(RegExp(r'^[0-9A-F]{16}-[0-9A-F]{64}$').hasMatch(token), isTrue,
+          reason: token);
     });
 
     test('同一 5 分钟窗口内一致，跨窗口变化', () {
@@ -18,11 +18,11 @@ void main() {
       expect(c, isNot(a));
     });
 
-    test('与独立实现（Python hashlib）结果一致', () {
-      // 期望值由 Python 独立算出：ticks 取整到 300 后与令牌拼接做 SHA-256（大写十六进制）
+    test('与参考实现（edge-tts drm.py 的 v2）逐字节一致', () {
+      // 期望值由 edge-tts 的 generate_sec_ms_gec_v2 独立算出
       expect(
         EdgeTtsClient.secMsGec(DateTime.utc(2026, 9, 30, 12, 0, 0)),
-        '14C4410C6B810FD3B511152D9A96C51A56FBB5C5530494CC4C8E0EADCF2500D6',
+        '1DF20094175DAA65-846235ECFFDDE3C41F40CCCE668A963427B1BBD80B65AF39823B1487B53E8F89',
       );
     });
   });

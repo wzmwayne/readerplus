@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 
 import 'edge_ws.dart';
+import 'tts_token.dart';
 
 /// Edge TTS 音色。
 class TtsVoice {
@@ -90,17 +91,13 @@ class EdgeTtsClient {
   /// 输出格式：24kHz 48kbps 单声道 mp3，体积小且音质够用。
   static const outputFormat = 'audio-24khz-48kbitrate-mono-mp3';
 
-  /// Sec-MS-GEC 令牌。同一 5 分钟窗口内结果一致，便于缓存与复用连接。
+  /// Sec-MS-GEC 令牌（v2）。同一 5 分钟窗口内结果一致，便于复用连接。
+  ///
+  /// v1（单段 SHA-256）已被网关拒绝：握手固定返回 403 Forbidden，
+  /// 表现为朗读「合成失败」。v2 格式为 "<CS64>-<SHA256>"，见 tts_token.dart。
   static String secMsGec([DateTime? now]) {
     final time = (now ?? DateTime.now()).toUtc();
-    var ticks = time.millisecondsSinceEpoch ~/ 1000 + _winEpoch;
-    ticks -= ticks % 300;
-    // Windows FILETIME 以 100 纳秒为单位，必须再乘 10^7（参考实现同此）
-    ticks *= 10000000;
-    return sha256
-        .convert(utf8.encode('$ticks$trustedClientToken'))
-        .toString()
-        .toUpperCase();
+    return secMsGecV2(time.millisecondsSinceEpoch / 1000.0);
   }
 
   static String buildSsml({
@@ -198,7 +195,7 @@ class EdgeTtsClient {
           '?TrustedClientToken=$trustedClientToken'
           '&ConnectionId=${_uuid()}'
           '&Sec-MS-GEC=${secMsGec()}'
-          '&Sec-MS-GEC-Version=1-$_chromiumVersion.0.3650.75',
+          '&Sec-MS-GEC-Version=$secMsGecVersion',
         );
         // 握手头部与社区实现一致：Origin 必须是这个扩展 ID，
         // 且必须带 Cookie: muid=<32 位大写十六进制>;
@@ -207,6 +204,8 @@ class EdgeTtsClient {
           headers: {
             'Origin': 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
             'User-Agent': _userAgent,
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Accept-Language': 'en-US,en;q=0.9',
             'Pragma': 'no-cache',
             'Cache-Control': 'no-cache',
             'Cookie': 'muid=${_uuid().toUpperCase()};',
