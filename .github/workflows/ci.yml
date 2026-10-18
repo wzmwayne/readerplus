@@ -209,20 +209,21 @@ jobs:
           VERSION="${{ needs.analyze.outputs.version }}"
           CODE="${{ needs.analyze.outputs.code }}"
           TAG="v$VERSION"
-          cat > notes.md <<EOF
-          readerplus 自动构建 **$VERSION**（versionCode $CODE）
-
-          本次构建目标：debug（arm64）$([ "${{ inputs.build_release }}" = "true" ] && echo '＋ Release（多架构）' || echo '；未构建 Release'）
-
-          提交：${{ github.sha }}
-
-          ### 本版要点
-          - 朗读：改用 Sec-MS-GEC v2 令牌，修复「合成失败」（网关 403）
-          - 已读章节：进入即记录，目录灰字+删除线，长按切换已读/未读
-          - 脚本：网络/解密异常降级不再整体崩溃；未捕获异常显示真实原因与堆栈
-
-          > 安装包为 CI 产出，签名固定，可直接覆盖安装。
-          EOF
+          TARGET="debug（arm64）"
+          if [ "${{ inputs.build_release }}" = "true" ]; then
+            TARGET="$TARGET ＋ Release（多架构）"
+          fi
+          {
+            printf 'readerplus 自动构建 **%s**（versionCode %s）\n\n' "$VERSION" "$CODE"
+            printf '本次构建目标：%s\n\n' "$TARGET"
+            printf '提交：%s\n\n' "${{ github.sha }}"
+            printf '### 本版要点\n'
+            printf -- '- 朗读：改用 Sec-MS-GEC v2 令牌，修复「合成失败」（网关 403）\n'
+            printf -- '- 已读章节：进入即记录，目录灰字+删除线，长按切换已读/未读\n'
+            printf -- '- 脚本：网络/解密异常降级不再整体崩溃；未捕获异常显示真实原因与堆栈\n'
+            printf '\n> 安装包为 CI 产出，签名固定，可直接覆盖安装。\n'
+          } > notes.md
+          cat notes.md
           gh release create "$TAG" apk/*.apk \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
