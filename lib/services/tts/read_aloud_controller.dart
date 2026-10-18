@@ -334,7 +334,8 @@ class ReadAloudController extends ChangeNotifier {
       }
     } catch (e) {
       lastError = '合成失败：$e';
-      AppLog.error('tts', '合成失败', e is Error ? StackTrace.current : null);
+      // ★ 必须带上 $e：以前只记「合成失败」，日志里看不到 403/超时等真实原因
+      AppLog.error('tts', '合成失败：$e', e is Error ? StackTrace.current : null);
       if (kDebugMode) debugPrint('[tts] 合成失败：$e');
       notifyListeners();
       return false;
