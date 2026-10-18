@@ -125,17 +125,25 @@ class ScriptRunner {
     }
 
     try {
-      final spawned = await Isolate.spawn<Map<String, Object?>>(_spawnEntry, {
-        'entry': entry,
-        'send': receive.sendPort,
-        'job': <String, Object?>{
-          'source': source,
-          'rule': ruleJson,
-          'inputs': inputs,
-          'outputDir': outputDir?.path,
-          'params': params,
+      final spawned = await Isolate.spawn<Map<String, Object?>>(
+        _spawnEntry,
+        {
+          'entry': entry,
+          'send': receive.sendPort,
+          'job': <String, Object?>{
+            'source': source,
+            'rule': ruleJson,
+            'inputs': inputs,
+            'outputDir': outputDir?.path,
+            'params': params,
+          },
         },
-      });
+        // ★ 未捕获的异步错误（例如宿主 Future 抛错、脚本回调里同步抛错）默认会让
+        //   isolate 静默死掉，界面只能报「isolate 意外结束」，无法定位。
+        //   接上错误端口后可以把真实异常+堆栈交给界面。
+        onError: receive.sendPort,
+        errorsAreFatal: true,
+      );
       isolate = spawned;
       // 异常退出（被杀/OOM/未交回 result 就结束）时给出明确结论，而不是一直等到超时
       spawned.addOnExitListener(
@@ -222,6 +230,27 @@ class ScriptRunner {
       if (message is String) {
         logs.add(message);
         onLog?.call(message);
+        return;
+      }
+      // 未捕获异常：[errorString, stackTraceString]（onError 端口发来）
+      if (message is List && message.length == 2) {
+        final detail = '${message[0]}'.trim();
+        final stack = '${message[1]}'.trim();
+        isolate?.kill(priority: Isolate.immediate);
+        isolate = null;
+        receive.close();
+        final short = stack.isEmpty ? detail : '$detail\n$stack';
+        logs.add('脚本未捕获异常：$detail');
+        onLog?.call('脚本未捕获异常：$detail');
+        finish(
+          ScriptRunResult(
+            ok: false,
+            error: '脚本未捕获异常：$short',
+            logs: logs,
+            elapsed: DateTime.now().difference(started),
+            cancelled: false,
+          ),
+        );
         return;
       }
       if (message is Map && message['type'] == 'exit') {
