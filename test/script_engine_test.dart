@@ -54,6 +54,22 @@ void main() {
       expect(result.result, 200, reason: 'await 宿主 Future 后应拿到状态码');
     });
 
+    test('网络失败不会杀死 isolate：宿主降级为 status=0', () async {
+      // 关键契约：Hetu 的 Future.then 只有一个回调（hetu_script class_binding），
+      // 且 Hetu 没有 try/catch ⇒ 宿主一旦让 Future 抛错，isolate 会被未捕获异常
+      // 直接杀掉，界面显示「脚本异常退出（isolate 意外结束，未交回结果）」。
+      // 所以 httpRequest/httpGet/httpPost 必须把网络异常降级成 status=0 的响应。
+      final result = await runner().run('''
+        httpRequest({'url': 'http://127.0.0.1:1/', 'method': 'GET', 'connectTimeoutMs': 1500}).then((r) {
+          log('拿到降级响应')
+          result({'status': r['status']})
+        })
+      ''');
+      expect(result.ok, isTrue, reason: '网络失败不应终止脚本：${result.error}');
+      expect(result.logs, contains('拿到降级响应'));
+      expect((result.result as Map)['status'], 0);
+    });
+
     test('死循环可被硬超时强制终止（真取消，App 不受影响）', () async {
       final sw = Stopwatch()..start();
       final result = await runner().run(

@@ -117,17 +117,42 @@ class ScriptHost {
   }
 
   // ---------- HTTP（简单 + 高自由度，见 HostHttp）----------
+  //
+  // ★ 网络失败必须降级成 status=0 的响应，绝不能让 Future 抛错：
+  //   Hetu 的 Future.then 只接受一个回调（hetu_script class_binding.dart），
+  //   且 HETU 没有 try/catch（lexicon 里 kTry 未启用），
+  //   所以任何未处理的 Future 错误都会变成 isolate 的未捕获异常 ⇒ 脚本直接被杀，
+  //   界面上表现为「脚本异常退出（isolate 意外结束，未交回结果）」。
+  //   脚本侧只需按 status != 200 走既有降级分支即可。
+  Map<String, dynamic> _netFail(Object error, String url, bool includeBytes) {
+    final message = '$error';
+    log('请求失败（已降级为 status=0，不再中断脚本）：$message');
+    return <String, dynamic>{
+      'status': 0,
+      'reason': 'network error',
+      'url': url,
+      'headers': const <String, List<String>>{},
+      'text': '',
+      'error': message,
+      if (includeBytes) 'bytes': const <int>[],
+    };
+  }
+
   Future<Map<String, dynamic>> httpGet(
     String url, {
     Map<String, String>? headers,
     bool includeBytes = false,
   }) async {
-    final response = await http.get(
-      url,
-      headers: headers,
-      includeBytes: includeBytes,
-    );
-    return response.toJson();
+    try {
+      final response = await http.get(
+        url,
+        headers: headers,
+        includeBytes: includeBytes,
+      );
+      return response.toJson();
+    } catch (error) {
+      return _netFail(error, url, includeBytes);
+    }
   }
 
   Future<Map<String, dynamic>> httpPost(
@@ -137,41 +162,50 @@ class ScriptHost {
     String? contentType,
     bool includeBytes = false,
   }) async {
-    final response = await http.post(
-      url,
-      body: body,
-      headers: headers,
-      contentType: contentType,
-      includeBytes: includeBytes,
-    );
-    return response.toJson();
+    try {
+      final response = await http.post(
+        url,
+        body: body,
+        headers: headers,
+        contentType: contentType,
+        includeBytes: includeBytes,
+      );
+      return response.toJson();
+    } catch (error) {
+      return _netFail(error, url, includeBytes);
+    }
   }
 
   /// 高自由度请求：方法、多值头、逐行原头、字节体、cookie、重定向、代理、超时、证书策略。
   Future<Map<String, dynamic>> httpRequest(Map<String, dynamic> options) async {
-    final response = await http.request(
-      url: '${options['url']}',
-      method: '${options['method'] ?? 'GET'}',
-      headers: (options['headers'] as Map?)?.map(
-        (key, value) => MapEntry(
-          '$key',
-          value is List ? value.map((v) => '$v').toList() : ['$value'],
+    final url = '${options['url']}';
+    final includeBytes = options['wantBytes'] as bool? ?? false;
+    try {
+      final response = await http.request(
+        url: url,
+        method: '${options['method'] ?? 'GET'}',
+        headers: (options['headers'] as Map?)?.map(
+          (key, value) => MapEntry(
+            '$key',
+            value is List ? value.map((v) => '$v').toList() : ['$value'],
+          ),
         ),
-      ),
-      rawHeaderLines: (options['rawHeaderLines'] as List?)?.map((l) => '$l').toList(),
-      body: options['body'],
-      contentType: options['contentType']?.toString(),
-      cookies: (options['cookies'] as Map?)?.map((k, v) => MapEntry('$k', '$v')),
-      connectTimeout: _duration(options['connectTimeoutMs'], 10),
-      idleTimeout: _duration(options['idleTimeoutMs'], 30),
-      followRedirects: options['followRedirects'] as bool? ?? true,
-      maxRedirects: int.tryParse('${options['maxRedirects'] ?? 5}') ?? 5,
-      proxy: options['proxy']?.toString(),
-      allowBadCertificate: options['allowBadCertificate'] as bool? ?? false,
-      // wantBytes: true ⇒ 响应里额外带 bytes（原始字节列表）
-      includeBytes: options['wantBytes'] as bool? ?? false,
-    );
-    return response.toJson();
+        rawHeaderLines: (options['rawHeaderLines'] as List?)?.map((l) => '$l').toList(),
+        body: options['body'],
+        contentType: options['contentType']?.toString(),
+        cookies: (options['cookies'] as Map?)?.map((k, v) => MapEntry('$k', '$v')),
+        connectTimeout: _duration(options['connectTimeoutMs'], 10),
+        idleTimeout: _duration(options['idleTimeoutMs'], 30),
+        followRedirects: options['followRedirects'] as bool? ?? true,
+        maxRedirects: int.tryParse('${options['maxRedirects'] ?? 5}') ?? 5,
+        proxy: options['proxy']?.toString(),
+        allowBadCertificate: options['allowBadCertificate'] as bool? ?? false,
+        includeBytes: includeBytes,
+      );
+      return response.toJson();
+    } catch (error) {
+      return _netFail(error, url, includeBytes);
+    }
   }
 
   static Duration _duration(Object? ms, int fallbackSeconds) {
@@ -395,14 +429,38 @@ class ScriptHost {
 
   String base64EncodeBytes(List<int> bytes) => CryptoOps.base64Encode(bytes);
 
-  List<int> base64DecodeText(String text) => CryptoOps.base64Decode(text);
+  // ★ 解码类函数同理不能抛：Hetu 脚本无法 try/catch，一次坏 base64／错密钥解密
+  //   就会升级成 isolate 未捕获异常而整体中断。失败一律返回空字节并记日志，
+  //   脚本按「解出空正文」走既有的缺失章节降级分支。
+  List<int> base64DecodeText(String text) {
+    try {
+      return CryptoOps.base64Decode(text);
+    } catch (error) {
+      log('base64Decode 失败（已降级为空字节）：$error');
+      return <int>[];
+    }
+  }
 
   String hexEncodeBytes(List<int> bytes) => CryptoOps.hexEncode(bytes);
 
-  List<int> hexDecodeText(String text) => CryptoOps.hexDecode(text);
+  List<int> hexDecodeText(String text) {
+    try {
+      return CryptoOps.hexDecode(text);
+    } catch (error) {
+      log('hexDecode 失败（已降级为空字节）：$error');
+      return <int>[];
+    }
+  }
 
   /// AES：mode=ecb/cbc，padding=pkcs7/none/iso7816，密钥/输入/IV 各自可指定编码。
-  List<int> aesDecrypt(Map<dynamic, dynamic> options) => _aes(options, true);
+  List<int> aesDecrypt(Map<dynamic, dynamic> options) {
+    try {
+      return _aes(options, true);
+    } catch (error) {
+      log('aesDecrypt 失败（已降级为空字节）：$error');
+      return <int>[];
+    }
+  }
 
   List<int> aesEncrypt(Map<dynamic, dynamic> options) => _aes(options, false);
 
@@ -430,7 +488,14 @@ class ScriptHost {
       CryptoOps.xor(bytes, key, keyEncoding);
 
   /// gzip 解压（响应头缺失或 .gz 文件时用；带 Content-Encoding 的响应已自动解压）。
-  List<int> gunzipBytes(List<int> bytes) => CryptoOps.gunzip(bytes);
+  List<int> gunzipBytes(List<int> bytes) {
+    try {
+      return CryptoOps.gunzip(bytes);
+    } catch (error) {
+      log('gunzip 失败（已降级为空字节）：$error');
+      return <int>[];
+    }
+  }
 
   /// gzip 压缩。
   List<int> gzipBytes(List<int> bytes) => CryptoOps.gzipBytes(bytes);
