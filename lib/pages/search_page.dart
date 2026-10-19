@@ -6,7 +6,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../services/app_log.dart';
-import '../services/plugin/builtin_sources.dart';
 import '../services/plugin/source_service.dart';
 import '../services/plugin/source_store.dart';
 import '../services/script/script_runner.dart';
@@ -14,24 +13,21 @@ import 'script_ask_dialog.dart';
 import 'scripts_page.dart';
 import '../state/app_state.dart';
 
-/// 内置书源（随应用打包，首次进入自动写入仓储）。
-///
-/// 注意：清洗类脚本（assets/plugins/txt_cleaner.ht）不是书源，不在此列出；
-/// 书架的 TXT 导入已由内置的纯 Dart 管线承担。
 /// 搜索页：选书源 → 搜索（实时日志）→ 结果 → 详情 → 下载入库。
+///
+/// 书源一律由用户自行导入（应用不内置任何脚本，示例脚本在仓库的
+/// examples/plugins/ 里，需手动导入）；脚本支持未启用时本页不加载书源、
+/// 不能发起搜索。
 ///
 /// 书源（含脚本与规则）的**管理**在「脚本」标签页；这里只负责搜与用。
 ///
 /// 全部经 [SourceService] → [PluginExecutor]：一个 isolate 执行器、
 /// 一套宿主能力，脚本与规则行为一致，脚本死循环也杀得掉。
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key, this.store, this.builtinLoader});
+  const SearchPage({super.key, this.store});
 
   /// 仓储可注入（测试用临时目录；正式运行走应用数据目录）。
   final SourceStore? store;
-
-  /// 内置书源正文加载器（默认读打包资源；测试可注入，避免依赖 asset bundle）。
-  final Future<String> Function(String asset)? builtinLoader;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -49,6 +45,9 @@ class _SearchPageState extends State<SearchPage> {
   bool _loading = true;
   bool _running = false;
 
+  /// 上一次构建看到的脚本支持状态：翻转时重载（启用 ⇒ 载入书源；关闭 ⇒ 清空）。
+  bool _enabled = false;
+
   /// 当前搜索的取消令牌：点「取消」即强制停止所有在跑的脚本 isolate。
   ScriptCancelToken? _token;
 
@@ -58,7 +57,11 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _enabled = context.read<AppState>().settings.scriptsEnabled == true;
+    // 放到帧后加载：闸门页可能正在这一步被弹出，先让首帧出得去
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
   }
 
   @override
@@ -68,17 +71,17 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _load() async {
-    if (await hasLegacyBuiltin(_store)) {
-      AppLog.info('source', '检测到旧版内置脚本：请清除应用数据后重新进入（不做旧版兼容）');
+    // 脚本支持未启用：不列任何书源（搜索入口同时禁用）
+    if (context.read<AppState>().settings.scriptsEnabled != true) {
+      if (!mounted) return;
+      setState(() {
+        _sources = const [];
+        _selected.clear();
+        _loading = false;
+      });
+      return;
     }
-    final changed = await syncBuiltinEntries(
-      _store,
-      loader: widget.builtinLoader,
-    );
     final entries = await _store.load();
-    if (changed) {
-      AppLog.info('source', '已写入 ${entries.length} 条内置条目');
-    }
     if (!mounted) return;
     final onlySources = entries.where((e) => e.isSource).toList();
     setState(() {
@@ -91,6 +94,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _search() async {
+    if (!_enabled) return;
     final query = _query.text.trim();
     if (query.isEmpty || _running) return;
     final picked = _sources.where((e) => _selected.contains(e.id)).toList();
@@ -390,6 +394,14 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final enabled = context.watch<AppState>().settings.scriptsEnabled == true;
+    if (enabled != _enabled) {
+      _enabled = enabled;
+      // 启用 ⇒ 载入书源；关闭 ⇒ 清空列表与选中
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('搜索'),
@@ -427,6 +439,8 @@ class _SearchPageState extends State<SearchPage> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                   child: TextField(
                     controller: _query,
+                    // 脚本支持关闭时搜索入口一并禁用（不发请求、不列书源）
+                    enabled: enabled,
                     textInputAction: TextInputAction.search,
                     onSubmitted: (_) => _search(),
                     decoration: InputDecoration(
@@ -434,36 +448,47 @@ class _SearchPageState extends State<SearchPage> {
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.search),
-                        onPressed: _running ? null : _search,
+                        onPressed: (_running || !enabled) ? null : _search,
                       ),
                     ),
                   ),
                 ),
-                ListTile(
-                  dense: true,
-                  title: Text('书源（已选 ${_selected.length}/${_sources.length}）'),
-                  subtitle: const Text('勾选参与搜索的书源；管理请点右上角'),
-                ),
-                for (final entry in _sources)
-                  CheckboxListTile(
-                    value: _selected.contains(entry.id),
-                    onChanged: _running
-                        ? null
-                        : (value) => setState(() {
-                            if (value == true) {
-                              _selected.add(entry.id);
-                            } else {
-                              _selected.remove(entry.id);
-                            }
-                          }),
-                    title: Text(entry.name),
+                if (!enabled)
+                  const ListTile(
+                    leading: Icon(Icons.search_off),
+                    title: Text('脚本支持未启用'),
                     subtitle: Text(
-                      '${entry.format == SourceFormat.script ? '脚本' : '规则'}'
-                      ' · ${entry.kind.label}'
-                      ' · ${entry.kind.label}',
+                      '未启用时不列出任何书源，也不能发起搜索。'
+                      '可在「设置 → 脚本 → 启用脚本支持」开启（需先通过理解确认题）；'
+                      '未启用不影响书架与阅读。',
                     ),
-
+                  )
+                else ...[
+                  ListTile(
+                    dense: true,
+                    title: Text('书源（已选 ${_selected.length}/${_sources.length}）'),
+                    subtitle: const Text('勾选参与搜索的书源；管理请点右上角'),
                   ),
+                  for (final entry in _sources)
+                    CheckboxListTile(
+                      value: _selected.contains(entry.id),
+                      onChanged: _running
+                          ? null
+                          : (value) => setState(() {
+                              if (value == true) {
+                                _selected.add(entry.id);
+                              } else {
+                                _selected.remove(entry.id);
+                              }
+                            }),
+                      title: Text(entry.name),
+                      subtitle: Text(
+                        '${entry.format == SourceFormat.script ? '脚本' : '规则'}'
+                        ' · ${entry.kind.label}'
+                        ' · ${entry.kind.label}',
+                      ),
+                    ),
+                ],
                 if (_logs.isNotEmpty) ...[
                   const Divider(),
                   ListTile(

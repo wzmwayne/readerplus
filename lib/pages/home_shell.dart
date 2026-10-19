@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/l10n.dart';
+import '../services/app_log.dart';
 import '../state/app_state.dart';
+import 'script_consent_page.dart';
 import 'scripts_page.dart';
 import 'search_page.dart';
 import 'shelf_page.dart';
@@ -34,12 +37,35 @@ class _HomeShellState extends State<HomeShell> {
     SettingsPage(),
   ];
 
-  static const _tabs = <({IconData icon, IconData selected, String label})>[
-    (icon: Icons.menu_book_outlined, selected: Icons.menu_book, label: '书架'),
-    (icon: Icons.search_outlined, selected: Icons.search, label: '搜索'),
-    (icon: Icons.extension_outlined, selected: Icons.extension, label: '插件'),
-    (icon: Icons.settings_outlined, selected: Icons.settings, label: '设置'),
+  static const _tabIcons = <({IconData icon, IconData selected})>[
+    (icon: Icons.menu_book_outlined, selected: Icons.menu_book),
+    (icon: Icons.search_outlined, selected: Icons.search),
+    (icon: Icons.extension_outlined, selected: Icons.extension),
+    (icon: Icons.settings_outlined, selected: Icons.settings),
   ];
+
+  static List<String> _tabLabels(L10n l) => [
+    l.tabShelf,
+    l.tabSearch,
+    l.tabPlugins,
+    l.tabSettings,
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // 首启闸门：设置里还没有「脚本支持」的决定（首启，或旧版本升级后缺该键）
+    // ⇒ 第一帧后自动弹出整页闸门。放到帧后是为了拿到可用的 Navigator。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowGate());
+  }
+
+  Future<void> _maybeShowGate() async {
+    if (!mounted) return;
+    final state = context.read<AppState>();
+    if (state.settings.scriptsEnabled != null) return;
+    final enabled = await ScriptConsentPage.show(context);
+    AppLog.info('script', enabled ? '首启闸门：用户启用脚本支持' : '首启闸门：用户暂不启用脚本支持');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +73,8 @@ class _HomeShellState extends State<HomeShell> {
     final settings = state.settings;
     if (_index >= _pages.length) _index = 0;
 
+    final l = L10n.of(settings);
+    final labels = _tabLabels(l);
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final expanded = settings.landscapeExpanded;
@@ -72,11 +100,11 @@ class _HomeShellState extends State<HomeShell> {
                     ),
                   ),
                   destinations: [
-                    for (final tab in _tabs)
+                    for (var i = 0; i < _tabIcons.length; i++)
                       NavigationRailDestination(
-                        icon: Icon(tab.icon),
-                        selectedIcon: Icon(tab.selected),
-                        label: Text(tab.label),
+                        icon: Icon(_tabIcons[i].icon),
+                        selectedIcon: Icon(_tabIcons[i].selected),
+                        label: Text(labels[i]),
                       ),
                   ],
                 )
@@ -100,11 +128,11 @@ class _HomeShellState extends State<HomeShell> {
                   ? NavigationDestinationLabelBehavior.alwaysShow
                   : NavigationDestinationLabelBehavior.alwaysHide,
               destinations: [
-                for (final tab in _tabs)
+                for (var i = 0; i < _tabIcons.length; i++)
                   NavigationDestination(
-                    icon: Icon(tab.icon),
-                    selectedIcon: Icon(tab.selected),
-                    label: tab.label,
+                    icon: Icon(_tabIcons[i].icon),
+                    selectedIcon: Icon(_tabIcons[i].selected),
+                    label: labels[i],
                   ),
               ],
             ),

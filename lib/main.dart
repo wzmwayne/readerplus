@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
+
+import 'l10n/l10n.dart';
 
 import 'pages/crash_page.dart';
 import 'pages/home_shell.dart';
@@ -45,9 +48,17 @@ class ReaderApp extends StatelessWidget {
         builder: (context, state, _) {
           final theme =
               kAppThemes[state.settings.themeIndex.clamp(0, kAppThemes.length - 1)];
+          final lang = state.settings.resolvedLang;
           return MaterialApp(
             navigatorKey: appNavigatorKey,
-            title: '阅读',
+            title: L10n.of(state.settings).appTitle,
+            locale: Locale(lang),
+            supportedLocales: const [Locale('zh'), Locale('en')],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             debugShowCheckedModeBanner: false,
             theme: theme.toThemeData(),
             home: const RootPage(),

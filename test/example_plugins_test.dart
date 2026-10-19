@@ -28,7 +28,7 @@ void main() {
     final outDir = await Directory.systemTemp.createTemp('example_clean');
     final input = await File('test/fixtures/sample_book.txt').readAsBytes();
     final result = await runExample(
-      'assets/plugins/txt_cleaner.ht',
+      'examples/plugins/txt_cleaner.ht',
       inputs: {'raw.txt': input},
       params: {'title': '夜航船（示例）', 'author': '测试作者'},
       outputDir: outDir,
@@ -54,7 +54,7 @@ void main() {
 
   test('示例二：假书源搜索（不联网，返回条目）', () async {
     final result = await runExample(
-      'assets/plugins/fake_source.ht',
+      'examples/plugins/fake_source.ht',
       params: {'task': 'search', 'query': '测试'},
     );
     expect(result.ok, isTrue, reason: result.error);
@@ -70,7 +70,7 @@ void main() {
 
   test('示例二：关键词 fail 触发失败（错误路径可控）', () async {
     final result = await runExample(
-      'assets/plugins/fake_source.ht',
+      'examples/plugins/fake_source.ht',
       params: {'task': 'search', 'query': 'fail'},
     );
     expect(result.ok, isFalse);
@@ -79,7 +79,7 @@ void main() {
 
   test('示例二：下载任务返回章节', () async {
     final result = await runExample(
-      'assets/plugins/fake_source.ht',
+      'examples/plugins/fake_source.ht',
       params: {'task': 'download', 'id': '1'},
     );
     expect(result.ok, isTrue, reason: result.error);

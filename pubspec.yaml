@@ -18,6 +18,8 @@ dependencies:
   crypto: ^3.0.5
   archive: ^4.0.0
   intl: ^0.20.2
+  flutter_localizations:
+    sdk: flutter
   fast_gbk: ^1.0.0
   # 单一音频实现，覆盖 android/ios/linux/macos/windows/web，无需平台分支
   audioplayers: ^6.8.1
@@ -33,5 +35,4 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/plugins/
     - docs/插件开发指南.md

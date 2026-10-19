@@ -2,10 +2,13 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../services/app_log.dart';
 import '../services/plugin/script_meta.dart';
 import '../services/plugin/source_store.dart';
+import '../state/app_state.dart';
+import 'script_consent_page.dart';
 
 /// 插件管理页：**所有**脚本与规则（书源在内）的查看、编辑、删除、添加。
 ///
@@ -32,20 +35,45 @@ class _ScriptsPageState extends State<ScriptsPage> {
   List<SourceEntry> _scripts = const [];
   bool _loading = true;
 
-  @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
+  /// 关闭态下不读仓储；启用后由 build 里的后置回调补一次加载。
+  bool _entriesLoaded = false;
 
   Future<void> _reload() async {
-    final entries = await _store.load();
     if (!mounted) return;
-    setState(() {
-      // 脚本与规则都归这里管理（含书源）
-      _scripts = entries.toList();
-      _loading = false;
-    });
+    // 脚本支持关闭时整页只有引导，不碰仓储（也不弹导入/编辑入口）
+    if (context.read<AppState>().settings.scriptsEnabled != true) {
+      setState(() {
+        _scripts = const [];
+        _loading = false;
+        _entriesLoaded = false;
+      });
+      return;
+    }
+    try {
+      final entries = await _store.load();
+      if (!mounted) return;
+      setState(() {
+        // 脚本与规则都归这里管理（含书源）
+        _scripts = entries.toList();
+        _loading = false;
+        _entriesLoaded = true;
+      });
+    } catch (error) {
+      // 读失败也标记为"已尝试"：build 里的后置回调按此标志调度，
+      // 否则每帧都会重试一次
+      AppLog.error('script', '读取脚本仓储失败：$error');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _entriesLoaded = true;
+      });
+    }
+  }
+
+  /// 「去开启」：通过闸门后刷新为正常管理页。
+  Future<void> _openGate() async {
+    final enabled = await ScriptConsentPage.show(context);
+    if (enabled) await _reload();
   }
 
   Future<void> _import() async {
@@ -235,8 +263,54 @@ log('脚本已启动')
 result('ok')
 ''';
 
+  /// 关闭态整页引导：说明现状 + 「去开启」（点击直接打开闸门）。
+  Widget _lockedPage(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text('插件管理')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.code_off,
+                  size: 44,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 12),
+                Text('脚本支持未启用', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 8),
+                Text(
+                  '脚本支持默认关闭：关闭状态下不加载、不运行、不管理任何脚本，'
+                  '书架与阅读等功能不受影响。'
+                  '开启需要先阅读说明并通过理解确认题。',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 20),
+                FilledButton(onPressed: _openGate, child: const Text('去开启')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (context.watch<AppState>().settings.scriptsEnabled != true) {
+      return _lockedPage(context);
+    }
+    if (!_entriesLoaded) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _reload();
+      });
+    }
     final grouped = <ScriptKind, List<SourceEntry>>{};
     for (final script in _scripts) {
       final key = script.format == SourceFormat.rule

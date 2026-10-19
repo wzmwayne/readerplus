@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_info.dart';
+import '../l10n/l10n.dart';
 import '../models/app_settings.dart';
 import '../services/app_log.dart';
 import '../state/app_state.dart';
 import 'developer_page.dart';
+import 'script_consent_page.dart';
 import 'scripts_page.dart';
 import 'settings_read_aloud_section.dart';
 import '../theme/app_theme.dart';
@@ -110,7 +112,26 @@ class SettingsPage extends StatelessWidget {
           const Divider(),
           const SettingsReadAloudSection(),
           const Divider(),
+          const _SectionTitle('界面'),
+          Builder(
+            builder: (context) {
+              final l = L10n.of(state.settings);
+              return ListTile(
+                leading: const Icon(Icons.translate),
+                title: Text(l.language),
+                subtitle: Text(_langLabel(l, state.settings.langMode)),
+                onTap: () => _pickLanguage(context, state),
+              );
+            },
+          ),
           const _SectionTitle('脚本'),
+          SwitchListTile(
+            value: settings.scriptsEnabled == true,
+            onChanged: (value) => _setScriptsEnabled(context, value),
+            secondary: const Icon(Icons.code),
+            title: const Text('启用脚本支持'),
+            subtitle: Text(_scriptsStatusText(settings.scriptsEnabled)),
+          ),
           ListTile(
             leading: const Icon(Icons.hourglass_empty),
             title: const Text('下载脚本运行上限'),
@@ -158,6 +179,70 @@ class SettingsPage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _langLabel(L10n l, AppLangMode mode) {
+    switch (mode) {
+      case AppLangMode.system:
+        return l.languageSystem;
+      case AppLangMode.zh:
+        return l.languageZh;
+      case AppLangMode.en:
+        return l.languageEn;
+    }
+  }
+
+  /// 语言选择：跟随系统 / 中文 / English（立即生效并持久化）。
+  static Future<void> _pickLanguage(BuildContext context, AppState state) async {
+    final l = L10n.of(state.settings);
+    final current = state.settings.langMode;
+    final picked = await showDialog<AppLangMode>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.language),
+        children: [
+          for (final mode in AppLangMode.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(mode),
+              child: ListTile(
+                title: Text(_langLabel(l, mode)),
+                trailing: mode == current ? const Icon(Icons.check) : null,
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    state.settings.langMode = picked;
+    await state.saveSettings();
+    AppLog.info('settings', '界面语言已切换为 ${picked.name}');
+  }
+
+  /// 开关状态文案：关掉之后会发生什么、怎么重新打开，都说清楚。
+  static String _scriptsStatusText(bool? scriptsEnabled) {
+    switch (scriptsEnabled) {
+      case true:
+        return '已启用：可导入并运行脚本。关闭后脚本相关功能不可用，'
+            '可随时重新开启（重新开启需再次确认）';
+      case false:
+        return '已关闭：脚本相关功能不可用（搜索页不列书源、插件页不可管理）。'
+            '可随时重新开启（重新开启需再次确认）';
+      case null:
+        return '尚未确认：脚本相关功能当前不可用。开启需先阅读说明并通过理解确认题';
+    }
+  }
+
+  /// 关 → 开必须过闸门（通过才置 true）；开 → 关直接置 false。
+  Future<void> _setScriptsEnabled(BuildContext context, bool value) async {
+    final state = context.read<AppState>();
+    if (!value) {
+      state.settings.scriptsEnabled = false;
+      await state.saveSettings();
+      AppLog.info('script', '用户在设置里关闭脚本支持');
+      return;
+    }
+    // 闸门页自己负责落盘：通过 ⇒ true，暂不启用 ⇒ false
+    await ScriptConsentPage.show(context);
   }
 
   /// 下载脚本运行上限：0 = 不限制（默认）。
