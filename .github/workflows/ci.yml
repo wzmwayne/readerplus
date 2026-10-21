@@ -148,6 +148,18 @@ jobs:
             echo "第 $attempt 次构建失败，10 秒后重试…"
             sleep 10
           done
+      - name: 校验语音合成原生库已随 APK 打包
+        run: |
+          set -e
+          APK="$(ls -t build/app/outputs/flutter-apk/*.apk | head -1)"
+          echo "检查 $APK"
+          LIST="$(unzip -l "$APK" | grep -E 'lib/.*\.so' || true)"
+          echo "$LIST"
+          for lib in libsherpa-onnx-c-api libonnxruntime; do
+            echo "$LIST" | grep -q "lib/arm64-v8a/$lib.so" \
+              || { echo "::error::APK 缺少 lib/arm64-v8a/$lib.so（JitPack 依赖未生效）"; exit 1; }
+          done
+          echo "✓ sherpa-onnx C API 与 ONNX Runtime 均已打包（来源：JitPack 依赖，未提交二进制）"
       - name: 构建 Release APK（多架构）
         if: ${{ inputs.build_release }}
         run: |
