@@ -140,34 +140,27 @@ jobs:
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
           flutter pub get
           # 插件的运行时压缩包下载偶发失败，失败即重试
+          ok=0
           for attempt in 1 2 3; do
-            flutter build apk --debug --target-platform android-arm64 \
+            if flutter build apk --debug --target-platform android-arm64 \
               --dart-define=PLUGIN_PROBE=1 \
               --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} \
-              --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }} && break
+              --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}; then ok=1; break; fi
             echo "第 $attempt 次构建失败，10 秒后重试…"
             sleep 10
           done
-      - name: 校验语音合成原生库已随 APK 打包
-        run: |
-          set -e
-          APK="$(ls -t build/app/outputs/flutter-apk/*.apk | head -1)"
-          echo "检查 $APK"
-          LIST="$(unzip -l "$APK" | grep -E 'lib/.*\.so' || true)"
-          echo "$LIST"
-          for lib in libsherpa-onnx-c-api libonnxruntime; do
-            echo "$LIST" | grep -q "lib/arm64-v8a/$lib.so" \
-              || { echo "::error::APK 缺少 lib/arm64-v8a/$lib.so（JitPack 依赖未生效）"; exit 1; }
-          done
-          echo "✓ sherpa-onnx C API 与 ONNX Runtime 均已打包（来源：JitPack 依赖，未提交二进制）"
+          # 循环本身必须以失败收场，否则三次全败也会被当成成功（旧写法的 bug）
+          [ "$ok" = "1" ] || { echo "::error::debug APK 三次构建均失败"; exit 1; }
       - name: 构建 Release APK（多架构）
         if: ${{ inputs.build_release }}
         run: |
+          ok=0
           for attempt in 1 2 3; do
-            flutter build apk --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }} && break
+            if flutter build apk --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}; then ok=1; break; fi
             echo "第 $attempt 次构建失败，10 秒后重试…"
             sleep 10
           done
+          [ "$ok" = "1" ] || { echo "::error::release APK 三次构建均失败"; exit 1; }
       - name: 生成构建摘要
         run: |
           set +e
@@ -189,13 +182,27 @@ jobs:
               [ -n "$BADGING" ] && echo "| ↳ | \`${BADGING}\` | |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: 上传 APK
+      - name: 上传 APK（编译完成立即上传，先于任何校验）
+        if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
           name: readerplus-android-apk
           path: build/app/outputs/flutter-apk/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
+
+      - name: 校验语音合成原生库已随 APK 打包（产物已上传，失败不影响取包）
+        run: |
+          set -e
+          APK="$(ls -t build/app/outputs/flutter-apk/*.apk | head -1)"
+          echo "检查 $APK"
+          LIST="$(unzip -l "$APK" | grep -E 'lib/.*\.so' || true)"
+          echo "$LIST"
+          for lib in libsherpa-onnx-c-api libonnxruntime; do
+            echo "$LIST" | grep -q "lib/arm64-v8a/$lib.so" \
+              || { echo "::error::APK 缺少 lib/arm64-v8a/$lib.so（JitPack 依赖未生效）"; exit 1; }
+          done
+          echo "✓ sherpa-onnx C API 与 ONNX Runtime 均已打包（来源：JitPack 依赖，未提交二进制）"
 
   release:
     name: 发布 Release

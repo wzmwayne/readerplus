@@ -5,7 +5,7 @@ allprojects {
         // sherpa-onnx 语音合成：F-Droid 允许从可信 Maven 仓库（含 JitPack）解析
         // 许可自由的预编译产物，因此这里作为**依赖**引入，而不是把 .so 提交进源码树。
         maven(url = "https://jitpack.io") {
-            content { includeGroup("com.github.k2-fsa") }
+            content { includeGroup("com.github.k2-fsa.sherpa-onnx") }
         }
     }
 }
