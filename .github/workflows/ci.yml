@@ -173,8 +173,27 @@ jobs:
             cp -v "$OUT/app-release.apk" "$OUT/$3"
           }
 
-          build "发行版（多架构）" "-Pabi=multi"              "readerplus-release-universal.apk"
-          build "发行版（arm64）"  "--target-platform android-arm64 -Pabi=arm64" "readerplus-release-arm64.apk"
+          # 通用包：四套 ABI 全含（arm64-v8a / armeabi-v7a / x86 / x86_64）
+          build "发行版（通用，含 x86_64/x86）" "-Pabi=all" "readerplus-release-universal.apk"
+
+          # 专用包：一次 --split-per-abi 调用产出每个 ABI 一个 APK
+          ok=0
+          for attempt in 1 2 3; do
+            if flutter build apk --release --split-per-abi -Pabi=all $COMMON; then ok=1; break; fi
+            echo "第 $attempt 次构建失败（发行版分架构），10 秒后重试…"
+            sleep 10
+          done
+          [ "$ok" = "1" ] || { echo "::error::发行版分架构 三次构建均失败"; exit 1; }
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            src="$OUT/app-$abi-release.apk"
+            [ -f "$src" ] || { echo "::error::缺少分架构产物 $src"; exit 1; }
+            case "$abi" in
+              arm64-v8a) suffix=arm64 ;;
+              armeabi-v7a) suffix=v7a ;;
+              *) suffix="$abi" ;;
+            esac
+            cp -v "$src" "$OUT/readerplus-release-$suffix.apk"
+          done
           ls -lh $OUT/*.apk
       - name: 生成构建摘要
         run: |
@@ -212,20 +231,34 @@ jobs:
           fail=0
           for APK in build/app/outputs/flutter-apk/*.apk; do
             [ -f "$APK" ] || continue
-            LIST="$(unzip -l "$APK" | grep -E 'lib/.*\.so' || true)"
-            echo "== $(basename "$APK")（$(du -h "$APK" | cut -f1)）"
-            echo "$LIST" | awk '{print "   ", $4, $1}'
-            for lib in libsherpa-onnx-c-api libonnxruntime; do
-              echo "$LIST" | grep -q "lib/arm64-v8a/$lib.so" \
-                || { echo "::error::$(basename "$APK") 缺少 lib/arm64-v8a/$lib.so（JitPack 依赖未生效）"; fail=1; }
+            NAME="$(basename "$APK")"
+            case "$NAME" in
+              *universal*) WANT="arm64-v8a armeabi-v7a x86 x86_64" ;;
+              *debug*)     WANT="arm64-v8a" ;;
+              *arm64*)     WANT="arm64-v8a" ;;
+              *v7a*)       WANT="armeabi-v7a" ;;
+              *x86_64*)    WANT="x86_64" ;;
+              *x86*)       WANT="x86" ;;
+              *)           WANT="" ;;
+            esac
+            LIST="$(unzip -l "$APK" | grep -oE 'lib/[^/]+/[^/]+\.so' || true)"
+            echo "== $NAME（$(du -h "$APK" | cut -f1)）应有 ABI: ${WANT:-未知}"
+            echo "$LIST" | sed 's/^/     /' | sort -u
+            for abi in $WANT; do
+              for lib in libsherpa-onnx-c-api libonnxruntime; do
+                echo "$LIST" | grep -qx "lib/$abi/$lib.so" \
+                  || { echo "::error::$NAME 缺少 lib/$abi/$lib.so"; fail=1; }
+              done
             done
-            # 只应出现选定的 ABI：debug=arm64，release=arm64(+v7a)，不该有 x86/x86_64
-            if echo "$LIST" | grep -qE "lib/(x86|x86_64)/"; then
-              echo "::error::$(basename "$APK") 混入了 x86/x86_64 原生库（ABI 过滤未生效）"; fail=1
+            if [ -n "$WANT" ]; then
+              for abi in $(echo "$LIST" | sed -E 's#lib/([^/]+)/.*#\1#' | sort -u); do
+                echo " $WANT " | grep -q " $abi " \
+                  || { echo "::error::$NAME 混入了不该有的 ABI: $abi"; fail=1; }
+              done
             fi
           done
           [ "$fail" = "0" ] || exit 1
-          echo "✓ 原生库齐备，且 ABI 集合符合预期"
+          echo "✓ 各包的 ABI 集合与原生库均符合预期"
 
   release:
     name: 发布 Release
