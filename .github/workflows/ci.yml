@@ -39,9 +39,13 @@ on:
         type: boolean
         default: false
       publish_release:
-        description: 构建完成后创建 GitHub Release 并上传 APK（tag=v<自动版本>）
+        description: 构建完成后创建 GitHub Release 并上传全部产物（tag=v<自动版本>）
         type: boolean
         default: false
+      prerelease:
+        description: 以预发行版（Pre-release）发布；关闭则标记为正式发行版
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -207,20 +211,27 @@ jobs:
   release:
     name: 发布 Release
     runs-on: ubuntu-24.04
-    needs: [analyze, android]
-    if: ${{ inputs.publish_release && needs.android.result == 'success' }}
+    # 等所有构建流水线（Android / Linux / 将来新增的其它平台）全部结束再发布
+    needs: [analyze, android, linux]
+    # 任一构建失败或取消都不发布；被 input 跳过的 job 结果为 skipped，不影响发布
+    if: ${{ inputs.publish_release && !failure() && !cancelled() }}
     permissions:
       contents: write
     steps:
-      - name: 取回本次构建的 APK
+      - name: 取回本次构建的全部产物
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download "${{ github.run_id }}" \
-            --repo "${{ github.repository }}" \
-            --name readerplus-android-apk \
-            --dir apk
-          ls -l apk
+          mkdir -p dist
+          for name in readerplus-android-apk readerplus-linux-x64; do
+            if gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" \
+                 --name "$name" --dir "tmp-$name"; then
+              find "tmp-$name" -type f -exec cp -v {} dist/ \;
+            else
+              echo "跳过（本次未产出）：$name"
+            fi
+          done
+          ls -l dist
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -237,17 +248,21 @@ jobs:
             printf '本次构建目标：%s\n\n' "$TARGET"
             printf '提交：%s\n\n' "${{ github.sha }}"
             printf '### 本版要点\n'
-            printf -- '- 朗读：改用 Sec-MS-GEC v2 令牌，修复「合成失败」（网关 403）\n'
+            printf -- '- 朗读：引擎改为本地 sherpa-onnx（JitPack 依赖，模型由用户导入）\n'
             printf -- '- 已读章节：进入即记录，目录灰字+删除线，长按切换已读/未读\n'
             printf -- '- 脚本：网络/解密异常降级不再整体崩溃；未捕获异常显示真实原因与堆栈\n'
             printf '\n> 安装包为 CI 产出，签名固定，可直接覆盖安装。\n'
           } > notes.md
           cat notes.md
-          gh release create "$TAG" apk/*.apk \
+          [ -n "$(ls -A dist 2>/dev/null)" ] || { echo "::error::没有任何可取回的产物，取消发布"; exit 1; }
+          PRE=""
+          if [ "${{ inputs.prerelease }}" = "true" ]; then PRE="--prerelease"; fi
+          gh release create "$TAG" dist/* \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
             --title "readerplus $VERSION" \
-            --notes-file notes.md
+            --notes-file notes.md \
+            $PRE
 
   linux:
     name: Linux 桌面
