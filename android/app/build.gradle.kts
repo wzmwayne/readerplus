@@ -80,11 +80,3 @@ kotlin {
 flutter {
     source = "../.."
 }
-
-dependencies {
-    // 语音合成引擎（Apache-2.0）。AAR 内含 libsherpa-onnx-c-api.so 与 libonnxruntime.so
-    // （arm64-v8a / armeabi-v7a / x86 / x86_64），由 Gradle 自动打进 APK 的 jniLibs。
-    // 坐标取自 JitPack 实际发布路径（com/github/k2-fsa/sherpa-onnx/sherpa-onnx/v1.13.8/*.aar，200 已验证）。
-    // 只取 AAR 本体：其 POM 里的 sibling 依赖解析不到，会连带整树 FAILED。
-    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8@aar") { isTransitive = false }
-}
