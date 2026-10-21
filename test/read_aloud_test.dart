@@ -21,7 +21,7 @@ class FakeSink implements TtsAudioSink {
   bool fetchBody = false;
 
   @override
-  Future<void> playUrl(String url) async {
+  Future<void> playUrl(String url, {String mimeType = 'audio/wav'}) async {
     played.add(url);
     events.add('play');
     isPlaying = true;

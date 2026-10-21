@@ -8,7 +8,11 @@ import 'package:audioplayers/audioplayers.dart';
 abstract class TtsAudioSink {
   /// 播放一个音频地址（指向进程内的流式 HTTP 服务），
   /// 返回的 Future 在**播放结束**时完成。
-  Future<void> playUrl(String url);
+  ///
+  /// [mimeType] 必须与流格式一致：本地引擎输出的是 WAV，
+  /// 若仍按 audio/mpeg 声明，Android MediaPlayer 会解析失败
+  /// （MEDIA_ERROR_UNKNOWN {what:1}）。
+  Future<void> playUrl(String url, {String mimeType});
 
   Future<void> pause();
   Future<void> resume();
@@ -35,10 +39,10 @@ class AudioPlayersSink implements TtsAudioSink {
   bool get isPlaying => _playing;
 
   @override
-  Future<void> playUrl(String url) async {
+  Future<void> playUrl(String url, {String mimeType = 'audio/wav'}) async {
     _playing = true;
     try {
-      await _player.play(UrlSource(url, mimeType: 'audio/mpeg'));
+      await _player.play(UrlSource(url, mimeType: mimeType));
       await _player.onPlayerComplete.first;
     } finally {
       _playing = false;

@@ -64,8 +64,9 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
   ReadAloudController? get _listenable => widget.controller ?? _own;
 
   Future<void> _loadModels() async {
-    if (_loading) return;
-    setState(() => _loading = true);
+    // 注意：不能因为 _loading 为真就提前 return —— 导入流程会先把 _loading 置真，
+    // 若在这里短路，导入完成后列表永远不刷新（表现为"必须重启应用才看到模型"）。
+    if (mounted) setState(() => _loading = true);
     final models = await LocalTtsSynthesizer.store.load();
     if (!mounted) return;
     setState(() {
@@ -81,7 +82,8 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
     // .tar.bz2 这类双后缀会被判成 application/octet-stream 而置灰不可选（实测只能选 .gz/.zip）。
     // 安全边界放在导入器：它按**内容魔数**识别 zip / tar.bz2 / tar.gz / tar，根本不看扩展名；
     // 认不出来就抛出可读错误，不会写入半个模型。
-    final file = await openFile();
+    const anyType = [XTypeGroup(label: '模型包', mimeTypes: ['*/*'])];
+    final file = await openFile(acceptedTypeGroups: anyType);
     if (file == null) return;
     setState(() => _loading = true);
     try {
