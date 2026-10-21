@@ -88,13 +88,11 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('导入语音模型'),
-        content: Text(
-          Platform.isAndroid
-              ? '请先把模型包放到「下载 / Download」目录，再从列表中选择它。\n\n'
-                    '支持 .zip / .tar.bz2 / .tar.gz / .tar，无需解压。'
-              : '请把模型包放在不含中文与空格的英文路径下（例如 ~/Downloads），'
-                    '并确认当前用户对该文件有读权限。\n\n'
-                    '支持 .zip / .tar.bz2 / .tar.gz / .tar，无需解压。',
+        content: const Text(
+          '① Android：请先把模型包放到「下载 / Download」目录，再从列表里选择它。\n'
+          '② Linux / 桌面：请把模型包放在不含中文与空格的英文路径下（例如 ~/Downloads），'
+          '并确认当前用户对该文件有读权限。\n\n'
+          '支持 .zip / .tar.bz2 / .tar.gz / .tar，无需解压。',
         ),
         actions: [
           TextButton(
