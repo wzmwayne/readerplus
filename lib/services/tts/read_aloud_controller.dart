@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import '../app_log.dart';
-import 'edge_tts_client.dart';
+import 'local_tts_synthesizer.dart';
 import 'tts_audio_sink.dart';
 import 'tts_stream_server.dart';
 
@@ -22,7 +22,7 @@ Stream<List<int>> _defaultSynthesize({
   required String voice,
   String rate = '+0%',
   String pitch = '+0Hz',
-}) => EdgeTtsClient.synthesize(
+}) => LocalTtsSynthesizer.synthesize(
   text: text,
   voice: voice,
   rate: rate,

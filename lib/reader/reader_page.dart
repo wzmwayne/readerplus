@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../services/tts/local_tts_synthesizer.dart';
 import '../services/app_log.dart';
 
 import '../models/book.dart';
@@ -197,6 +198,8 @@ class _ReaderPageState extends State<ReaderPage>
     _slideController.dispose();
     _scrollController.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // 退出阅读器即释放模型（int8 常驻约 65 MB）；下次朗读按需重新加载
+    unawaited(LocalTtsSynthesizer.disposeAll());
     final tts = _ttsInstance;
     if (tts != null) {
       tts.onPageFinished = null;

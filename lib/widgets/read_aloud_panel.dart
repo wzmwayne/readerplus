@@ -1,9 +1,14 @@
 import 'dart:async';
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../services/tts/edge_tts_client.dart';
+import 'package:file_selector/file_selector.dart';
+
+import '../services/tts/local_tts_synthesizer.dart';
+import '../services/tts/tts_model_store.dart';
 import '../services/tts/read_aloud_controller.dart';
 import '../state/app_state.dart';
 
@@ -38,14 +43,13 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
   static const _sample = '夜色像一层薄薄的墨，慢慢洇开在窗棂上。';
 
   ReadAloudController? _own;
-  List<TtsVoice>? _voices;
+  List<TtsModel>? _models;
   bool _loading = false;
 
   @override
   void initState() {
     super.initState();
-    _voices = EdgeTtsClient.cachedVoices ?? EdgeTtsClient.builtinVoices;
-    unawaited(_loadVoices());
+    unawaited(_loadModels());
   }
 
   @override
@@ -59,15 +63,60 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
 
   ReadAloudController? get _listenable => widget.controller ?? _own;
 
-  Future<void> _loadVoices({bool force = false}) async {
+  Future<void> _loadModels() async {
     if (_loading) return;
     setState(() => _loading = true);
-    final voices = await EdgeTtsClient.loadChineseVoices(forceRefresh: force);
+    final models = await LocalTtsSynthesizer.store.load();
     if (!mounted) return;
     setState(() {
-      _voices = voices;
+      _models = models;
       _loading = false;
     });
+  }
+
+  /// 导入一个模型包（zip / tar.bz2 / tar.gz / tar），成功后自动选中。
+  Future<void> _importModel() async {
+    final state = context.read<AppState>();
+    const types = [
+      XTypeGroup(label: '模型包', extensions: ['zip', 'bz2', 'gz', 'tar', 'xz']),
+    ];
+    final file = await openFile(acceptedTypeGroups: const types);
+    if (file == null) return;
+    setState(() => _loading = true);
+    try {
+      final model = await LocalTtsSynthesizer.store.importPackage(File(file.path));
+      state.readerSettings.ttsVoice = model.id;
+      await state.saveReaderSettings();
+      await _loadModels();
+      _snack('已导入：${model.name}');
+    } on TtsModelImportException catch (e) {
+      _snack('导入失败：${e.message}');
+    } catch (e) {
+      _snack('导入失败：$e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _deleteModel(TtsModel model) async {
+    await LocalTtsSynthesizer.dispose(model.id);
+    await LocalTtsSynthesizer.store.delete(model);
+    await _loadModels();
+    _snack('已删除：${model.name}');
+  }
+
+  void _snack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  TtsModel? get _selected {
+    final id = context.read<AppState>().readerSettings.ttsVoice;
+    final list = _models ?? const <TtsModel>[];
+    for (final m in list) {
+      if (m.id == id) return m;
+    }
+    return list.isEmpty ? null : list.first;
   }
 
   Future<void> _applySettings({required bool restart}) async {
@@ -100,7 +149,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
       if (mounted) setState(() {});
       return;
     }
-    await controller.start('${TtsVoice.labelOf(rs.ttsVoice)}。$_sample');
+    await controller.start('$_sample');
     if (mounted) setState(() {});
   }
 
@@ -112,7 +161,6 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final rs = state.readerSettings;
-    final voices = _voices ?? EdgeTtsClient.builtinVoices;
     final listenable = _listenable;
     final body = Column(
       mainAxisSize: MainAxisSize.min,
@@ -122,10 +170,10 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
           children: [
             Icon(Icons.record_voice_over_outlined, size: 18, color: _text(0.7)),
             const SizedBox(width: 8),
-            Text('中文音色', style: TextStyle(fontSize: 13, color: _text(0.7))),
+            Text('本地语音模型', style: TextStyle(fontSize: 13, color: _text(0.7))),
             const Spacer(),
             Text(
-              TtsVoice.labelOf(rs.ttsVoice),
+              _selected?.name ?? '未导入',
               style: TextStyle(fontSize: 12, color: _text(0.55)),
             ),
             if (_loading)
@@ -140,9 +188,9 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
             else
               IconButton(
                 visualDensity: VisualDensity.compact,
-                tooltip: '刷新音色列表',
-                icon: Icon(Icons.refresh, size: 18, color: _text(0.7)),
-                onPressed: () => _loadVoices(force: true),
+                tooltip: '导入模型包（zip / tar.bz2）',
+                icon: Icon(Icons.add, size: 18, color: _text(0.7)),
+                onPressed: _importModel,
               ),
           ],
         ),
@@ -150,22 +198,21 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
           height: 64,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: voices.length,
+            itemCount: (_models ?? const <TtsModel>[]).length,
             separatorBuilder: (_, _) => const SizedBox(width: 6),
             itemBuilder: (context, index) {
-              final voice = voices[index];
-              final selected = voice.shortName == rs.ttsVoice;
+              final model = _models![index];
+              final selected = model.id == rs.ttsVoice ||
+                  (rs.ttsVoice.isEmpty && index == 0);
               return Center(
                 child: ChoiceChip(
-                  label: Text(
-                    TtsVoice.labelOf(voice.shortName),
-                    style: const TextStyle(fontSize: 12),
-                  ),
+                  label: Text(model.name, style: const TextStyle(fontSize: 12)),
                   selected: selected,
                   onSelected: (_) async {
-                    setState(() => rs.ttsVoice = voice.shortName);
+                    setState(() => rs.ttsVoice = model.id);
                     await _applySettings(restart: true);
                   },
+                  onDeleted: () => _deleteModel(model),
                 ),
               );
             },
