@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:archive/archive.dart';
 import 'package:path_provider/path_provider.dart';
@@ -135,10 +136,37 @@ class TtsModelStore {
   /// 支持 `.zip`、`.tar.bz2`、`.tar.gz`、`.tar`（**按内容魔数识别，不看扩展名**）：
   /// sherpa 官方发布的是 `.tar.bz2`，用户也可能自己压成 zip。
   Future<TtsModel> importPackage(File file, {String? displayName}) async {
+    final root = await _root();
+    // 解包/校验/落盘全部放到后台 isolate：60 MB 级的解压与逐文件写入
+    // 如果跑在 UI isolate 上会明显卡顿（甚至几百毫秒白屏）。
+    final Map<String, dynamic> json;
+    try {
+      json = await Isolate.run(
+        () => _extractInIsolate(file.path, root.path, displayName),
+      );
+    } catch (e) {
+      // isolate 内抛出的自定义异常到这里会变成 RemoteError，
+      // 还原成用户看得懂的 TtsModelImportException 文案。
+      final text = '$e'.replaceFirst('RemoteError: ', '');
+      final m = RegExp(r'TtsModelImportException: (.*)$').firstMatch(text);
+      throw TtsModelImportException(m?.group(1) ?? text);
+    }
+    final model = TtsModel.fromJson(json);
+    await _save([...await load(), model]);
+    return model;
+  }
+
+  /// 解包主体：只在后台 isolate 内运行（因此可以放心用同步 IO）。
+  static Map<String, dynamic> _extractInIsolate(
+    String filePath,
+    String rootPath,
+    String? displayName,
+  ) {
+    final file = File(filePath);
     if (!file.existsSync()) {
       throw const TtsModelImportException('文件不存在');
     }
-    final files = await _decodeEntries(await file.readAsBytes());
+    final files = _decodeEntries(file.readAsBytesSync());
     if (files.isEmpty) {
       throw const TtsModelImportException('包里没有文件');
     }
@@ -180,7 +208,8 @@ class TtsModelStore {
     }
 
     // 解压到临时目录，再整体搬到最终位置（避免半成品残留）
-    final root = await _root();
+    final root = Directory(rootPath);
+    if (!root.existsSync()) root.createSync(recursive: true);
     final id = 'model_${DateTime.now().millisecondsSinceEpoch}';
     final tmp = Directory('${root.path}/.import_$id');
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
@@ -207,8 +236,7 @@ class TtsModelStore {
         sizeBytes: _dirSize(finalDir),
         importedAt: DateTime.now(),
       );
-      await _save([...await load(), model]);
-      return model;
+      return model.toJson();
     } catch (e) {
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
       if (e is TtsModelImportException) rethrow;
@@ -217,9 +245,7 @@ class TtsModelStore {
   }
 
   /// 按魔数识别容器格式并展开为文件列表（zip / gzip+tar / bzip2+tar / tar）。
-  static Future<List<({String name, int size, List<int> bytes})>> _decodeEntries(
-    List<int> raw,
-  ) async {
+  static List<({String name, int size, List<int> bytes})> _decodeEntries(List<int> raw) {
     if (raw.length < 4) {
       throw const TtsModelImportException('文件太小，不是有效的模型包');
     }
