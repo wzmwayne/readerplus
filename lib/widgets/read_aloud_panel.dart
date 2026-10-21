@@ -77,10 +77,11 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
   /// 导入一个模型包（zip / tar.bz2 / tar.gz / tar），成功后自动选中。
   Future<void> _importModel() async {
     final state = context.read<AppState>();
-    const types = [
-      XTypeGroup(label: '模型包', extensions: ['zip', 'bz2', 'gz', 'tar', 'xz']),
-    ];
-    final file = await openFile(acceptedTypeGroups: types);
+    // 不做任何后缀/MIME 筛选：Android 的 file_selector 会把 extensions 映射成 MIME，
+    // .tar.bz2 这类双后缀会被判成 application/octet-stream 而置灰不可选（实测只能选 .gz/.zip）。
+    // 安全边界放在导入器：它按**内容魔数**识别 zip / tar.bz2 / tar.gz / tar，根本不看扩展名；
+    // 认不出来就抛出可读错误，不会写入半个模型。
+    final file = await openFile();
     if (file == null) return;
     setState(() => _loading = true);
     try {
