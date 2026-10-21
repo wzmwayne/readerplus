@@ -80,7 +80,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
     const types = [
       XTypeGroup(label: '模型包', extensions: ['zip', 'bz2', 'gz', 'tar', 'xz']),
     ];
-    final file = await openFile(acceptedTypeGroups: const types);
+    final file = await openFile(acceptedTypeGroups: types);
     if (file == null) return;
     setState(() => _loading = true);
     try {
@@ -205,7 +205,8 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
               final selected = model.id == rs.ttsVoice ||
                   (rs.ttsVoice.isEmpty && index == 0);
               return Center(
-                child: ChoiceChip(
+                // InputChip 才有 onDeleted；ChoiceChip 不支持删除按钮
+                child: InputChip(
                   label: Text(model.name, style: const TextStyle(fontSize: 12)),
                   selected: selected,
                   onSelected: (_) async {
@@ -213,6 +214,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
                     await _applySettings(restart: true);
                   },
                   onDeleted: () => _deleteModel(model),
+                  deleteButtonTooltipMessage: '删除该模型',
                 ),
               );
             },

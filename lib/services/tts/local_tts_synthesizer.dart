@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 
 import '../app_log.dart';
 import 'sherpa_tts_engine.dart';
@@ -76,8 +75,10 @@ class LocalTtsSynthesizer {
       final wav = await engine.synthesize(text, speed: speedOf(rate));
       _armIdleRelease(voice);
       yield wav;
-    } on RemoteError catch (e) {
-      throw StateError('语音合成失败：${e.message}');
+    } catch (e) {
+      // 合成失败要抛出可读原因：调用方（朗读控制器）会把它写进日志并停止朗读
+      if (e is StateError) rethrow;
+      throw StateError('语音合成失败：$e');
     }
   }
 
