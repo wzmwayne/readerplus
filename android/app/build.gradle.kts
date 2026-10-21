@@ -26,9 +26,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // ABI 集合：-Pabi=arm64 只打 arm64-v8a；默认 arm64-v8a + armeabi-v7a。
+    // 注意 Flutter 的 --target-platform 只影响 Flutter 自身的 libapp.so，
+    // 依赖 AAR 里的 jni 库必须靠这里的 abiFilters 过滤，否则会把 x86/x86_64 一起打进包（+41MB）。
+    val abiSelection: List<String> =
+        when (val abi = (project.findProperty("abi") as String?) ?: "multi") {
+            "arm64" -> listOf("arm64-v8a")
+            "multi" -> listOf("arm64-v8a", "armeabi-v7a")
+            else -> error("未知的 -Pabi=$abi（可选 arm64 / multi）")
+        }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "wzmwayne.reader"
+        ndk {
+            abiFilters.clear()
+            abiFilters.addAll(abiSelection)
+        }
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

@@ -23,6 +23,9 @@ dependencies:
   fast_gbk: ^1.0.0
   # 单一音频实现，覆盖 android/ios/linux/macos/windows/web，无需平台分支
   audioplayers: ^6.8.1
+  # 本地离线语音合成（Apache-2.0）。原生库由 Android 端的 JitPack AAR 提供，
+  # 桌面端由打包流程附带的 libsherpa-onnx-c-api 提供。
+  sherpa_onnx: ^1.13.8
   html: ^0.15.7
   hetu_script: ^0.6.4
   pointycastle: ^4.0.0

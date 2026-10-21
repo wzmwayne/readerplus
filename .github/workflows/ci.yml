@@ -146,7 +146,7 @@ jobs:
           # 插件的运行时压缩包下载偶发失败，失败即重试
           ok=0
           for attempt in 1 2 3; do
-            if flutter build apk --debug --target-platform android-arm64 \
+            if flutter build apk --debug --target-platform android-arm64 -Pabi=arm64 \
               --dart-define=PLUGIN_PROBE=1 \
               --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} \
               --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}; then ok=1; break; fi
@@ -158,13 +158,24 @@ jobs:
       - name: 构建 Release APK（多架构）
         if: ${{ inputs.build_release }}
         run: |
-          ok=0
-          for attempt in 1 2 3; do
-            if flutter build apk --release --build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} --dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}; then ok=1; break; fi
-            echo "第 $attempt 次构建失败，10 秒后重试…"
-            sleep 10
-          done
-          [ "$ok" = "1" ] || { echo "::error::release APK 三次构建均失败"; exit 1; }
+          OUT=build/app/outputs/flutter-apk
+          DEFINES="--dart-define=APP_VERSION=${{ needs.analyze.outputs.version }} --dart-define=APP_BUILD_NUMBER=${{ needs.analyze.outputs.code }}"
+          COMMON="--build-name=${{ needs.analyze.outputs.version }} --build-number=${{ needs.analyze.outputs.code }} $DEFINES"
+
+          build() {   # $1=说明 $2=额外的 flutter 参数 $3=产物另存名
+            local ok=0
+            for attempt in 1 2 3; do
+              if flutter build apk --release $COMMON $2; then ok=1; break; fi
+              echo "第 $attempt 次构建失败（$1），10 秒后重试…"
+              sleep 10
+            done
+            [ "$ok" = "1" ] || { echo "::error::$1 三次构建均失败"; exit 1; }
+            cp -v "$OUT/app-release.apk" "$OUT/$3"
+          }
+
+          build "发行版（多架构）" "-Pabi=multi"              "readerplus-release-universal.apk"
+          build "发行版（arm64）"  "--target-platform android-arm64 -Pabi=arm64" "readerplus-release-arm64.apk"
+          ls -lh $OUT/*.apk
       - name: 生成构建摘要
         run: |
           set +e
@@ -198,15 +209,23 @@ jobs:
       - name: 校验语音合成原生库已随 APK 打包（产物已上传，失败不影响取包）
         run: |
           set -e
-          APK="$(ls -t build/app/outputs/flutter-apk/*.apk | head -1)"
-          echo "检查 $APK"
-          LIST="$(unzip -l "$APK" | grep -E 'lib/.*\.so' || true)"
-          echo "$LIST"
-          for lib in libsherpa-onnx-c-api libonnxruntime; do
-            echo "$LIST" | grep -q "lib/arm64-v8a/$lib.so" \
-              || { echo "::error::APK 缺少 lib/arm64-v8a/$lib.so（JitPack 依赖未生效）"; exit 1; }
+          fail=0
+          for APK in build/app/outputs/flutter-apk/*.apk; do
+            [ -f "$APK" ] || continue
+            LIST="$(unzip -l "$APK" | grep -E 'lib/.*\.so' || true)"
+            echo "== $(basename "$APK")（$(du -h "$APK" | cut -f1)）"
+            echo "$LIST" | awk '{print "   ", $4, $1}'
+            for lib in libsherpa-onnx-c-api libonnxruntime; do
+              echo "$LIST" | grep -q "lib/arm64-v8a/$lib.so" \
+                || { echo "::error::$(basename "$APK") 缺少 lib/arm64-v8a/$lib.so（JitPack 依赖未生效）"; fail=1; }
+            done
+            # 只应出现选定的 ABI：debug=arm64，release=arm64(+v7a)，不该有 x86/x86_64
+            if echo "$LIST" | grep -qE "lib/(x86|x86_64)/"; then
+              echo "::error::$(basename "$APK") 混入了 x86/x86_64 原生库（ABI 过滤未生效）"; fail=1
+            fi
           done
-          echo "✓ sherpa-onnx C API 与 ONNX Runtime 均已打包（来源：JitPack 依赖，未提交二进制）"
+          [ "$fail" = "0" ] || exit 1
+          echo "✓ 原生库齐备，且 ABI 集合符合预期"
 
   release:
     name: 发布 Release
