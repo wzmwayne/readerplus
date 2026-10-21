@@ -82,6 +82,34 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
     // .tar.bz2 这类双后缀会被判成 application/octet-stream 而置灰不可选（实测只能选 .gz/.zip）。
     // 安全边界放在导入器：它按**内容魔数**识别 zip / tar.bz2 / tar.gz / tar，根本不看扩展名；
     // 认不出来就抛出可读错误，不会写入半个模型。
+    // 分平台的选文件提示：Android 的文件选择器对目录/类型可见性不稳定，
+    // 桌面端则容易踩到中文路径与权限问题。
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('导入语音模型'),
+        content: Text(
+          Platform.isAndroid
+              ? '请先把模型包放到「下载 / Download」目录，再从列表中选择它。\n\n'
+                    '支持 .zip / .tar.bz2 / .tar.gz / .tar，无需解压。'
+              : '请把模型包放在不含中文与空格的英文路径下（例如 ~/Downloads），'
+                    '并确认当前用户对该文件有读权限。\n\n'
+                    '支持 .zip / .tar.bz2 / .tar.gz / .tar，无需解压。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('选择文件'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+
     const anyType = [XTypeGroup(label: '模型包', mimeTypes: ['*/*'])];
     final file = await openFile(acceptedTypeGroups: anyType);
     if (file == null) return;

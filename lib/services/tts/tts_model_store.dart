@@ -223,13 +223,25 @@ class TtsModelStore {
       final finalDir = Directory('${root.path}/$id');
       tmp.renameSync(finalDir.path);
 
-      final onnxInFinal = File('${finalDir.path}/${onnx.first.name.replaceAll('\\', '/')}');
-      final name = (displayName ?? _guessName(onnx.first.name)).trim();
+      // 用**锚点文件**定位模型根：官方包常自带若干层顶层目录，
+      // 递归找 tokens.txt（最多 9 层），它所在目录即模型根，内容上提到模型目录根。
+      final tokensAnchor = _findAnchor(finalDir, 'tokens.txt', maxDepth: 9);
+      if (tokensAnchor == null) {
+        throw const TtsModelImportException('解包后找不到 tokens.txt（已递归查找 9 层）');
+      }
+      _promoteDirectory(File(tokensAnchor).parent, finalDir);
+
+      final onnxPath = _findAnchor(finalDir, '.onnx', maxDepth: 9);
+      if (onnxPath == null) {
+        throw const TtsModelImportException('解包后找不到 .onnx 模型文件（已递归查找 9 层）');
+      }
+      final onnxInFinal = File(onnxPath);
+      final name = (displayName ?? _guessName(onnxInFinal.path)).trim();
       final model = TtsModel(
         id: id,
         name: name.isEmpty ? id : name,
         kind: hasEspeak ? 'piper' : 'vits',
-        language: _guessLanguage(onnx.first.name, name),
+        language: _guessLanguage(onnxInFinal.path, name),
         dirPath: finalDir.path,
         onnxFile: onnxInFinal.path,
         hasEspeakData: hasEspeak,
@@ -278,6 +290,43 @@ class TtsModelStore {
         '无法识别或解包该文件（支持 zip / tar.bz2 / tar.gz / tar）：$e',
       );
     }
+  }
+
+  /// 递归查找锚点文件，最多 [maxDepth] 层，越浅越优先。
+  static String? _findAnchor(Directory dir, String suffix, {int maxDepth = 9}) {
+    final base = dir.path.endsWith('/') ? dir.path : '${dir.path}/';
+    String? best;
+    var bestDepth = maxDepth + 1;
+    for (final e in dir.listSync(recursive: true)) {
+      if (e is! File) continue;
+      if (!e.path.toLowerCase().endsWith(suffix.toLowerCase())) continue;
+      final depth = e.path.substring(base.length).split('/').length - 1;
+      if (depth > maxDepth) continue;
+      if (depth < bestDepth) {
+        bestDepth = depth;
+        best = e.path;
+      }
+    }
+    return best;
+  }
+
+  /// 把 [from] 的内容整体上提到 [to]（[to] 是 [from] 的祖先目录）。
+  static void _promoteDirectory(Directory from, Directory to) {
+    if (from.path == to.path) return;
+    for (final e in from.listSync()) {
+      final name = e.path.split('/').last;
+      final target = '${to.path}/$name';
+      if (e is Directory) {
+        if (Directory(target).existsSync()) {
+          _promoteDirectory(e, Directory(target));
+        } else {
+          e.renameSync(target);
+        }
+      } else {
+        File(e.path).renameSync(target);
+      }
+    }
+    if (from.existsSync() && from.listSync().isEmpty) from.deleteSync(recursive: true);
   }
 
   static String _guessName(String onnxName) {

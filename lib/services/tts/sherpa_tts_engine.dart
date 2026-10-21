@@ -33,13 +33,17 @@ class TtsModelFiles {
     final dir = Directory(dirPath);
     if (!dir.existsSync()) return null;
 
+    // 递归查找（最多 9 层、越浅越优先），兼容"包里带顶层目录"的历史导入结构
     String first(String suffix, {String under = ''}) {
+      final base = dir.path.endsWith('/') ? dir.path : '${dir.path}/';
       final files = dir
-          .listSync(recursive: under.isNotEmpty)
+          .listSync(recursive: true)
           .whereType<File>()
           .where((f) => f.path.toLowerCase().endsWith(suffix))
           .where((f) => under.isEmpty || f.path.contains(under))
-          .toList();
+          .where((f) => f.path.substring(base.length).split('/').length - 1 <= 9)
+          .toList()
+        ..sort((a, b) => a.path.split('/').length.compareTo(b.path.split('/').length));
       if (files.isEmpty) return '';
       // 多个 onnx 时优先真实 int8（体积小），与导入阶段的判定保持一致
       if (suffix == '.onnx') {
