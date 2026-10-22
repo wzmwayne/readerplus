@@ -46,6 +46,11 @@ on:
         description: 以预发行版（Pre-release）发布；关闭则标记为正式发行版
         type: boolean
         default: true
+      release_notes:
+        description: 发布说明（写入 Release 正文，可多行；留空则使用自动生成的要点）
+        type: string
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -301,6 +306,7 @@ jobs:
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
           VERSION="${{ needs.analyze.outputs.version }}"
           CODE="${{ needs.analyze.outputs.code }}"
@@ -310,17 +316,31 @@ jobs:
             TARGET="$TARGET ＋ Release（多架构）"
           fi
           {
-            printf 'readerplus 自动构建 **%s**（versionCode %s）\n\n' "$VERSION" "$CODE"
+            printf 'readerplus **%s**（versionCode %s）\n\n' "$VERSION" "$CODE"
             printf '本次构建目标：%s\n\n' "$TARGET"
-            printf '提交：%s\n\n' "${{ github.sha }}"
-            printf '### 本版要点\n'
-            printf -- '- 朗读：引擎改为本地 sherpa-onnx（JitPack 依赖，模型由用户导入）\n'
-            printf -- '- 已读章节：进入即记录，目录灰字+删除线，长按切换已读/未读\n'
-            printf -- '- 脚本：网络/解密异常降级不再整体崩溃；未捕获异常显示真实原因与堆栈\n'
+            if [ -n "$RELEASE_NOTES" ]; then
+              # 使用工作流输入里的发布说明（原样输出，保留换行）
+              printf '%s\n' "$RELEASE_NOTES"
+            else
+              printf '### 本版要点\n'
+              printf -- '- 朗读：本地 sherpa-onnx 离线合成，模型由用户导入\n'
+              printf -- '- 界面：中英双语，应用更名「阅读+ / ReaderPlus」\n'
+              printf -- '- 版本号改由 pubspec.yaml 决定，与商店版本码一致\n'
+            fi
+            printf '\n### 本次产物\n\n'
+            for f in dist/*; do
+              [ -f "$f" ] || continue
+              printf -- '- `%s`（%s）\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
+            done
+            printf '\n提交：%s\n' "${{ github.sha }}"
             printf '\n> 安装包为 CI 产出，签名固定，可直接覆盖安装。\n'
           } > notes.md
           cat notes.md
+          # app-release.apk 是构建过程的中间文件，与 readerplus-release-universal.apk 内容等价，
+          # 去掉以免发布页出现两个 173MB 的重复包；其余 debug 与 release 产物全部保留。
+          rm -f dist/app-release.apk
           [ -n "$(ls -A dist 2>/dev/null)" ] || { echo "::error::没有任何可取回的产物，取消发布"; exit 1; }
+          echo "将发布以下产物："; ls -lh dist
           PRE=""
           if [ "${{ inputs.prerelease }}" = "true" ]; then PRE="--prerelease"; fi
           gh release create "$TAG" dist/* \
