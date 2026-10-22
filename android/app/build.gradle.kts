@@ -34,8 +34,7 @@ android {
             "arm64" -> listOf("arm64-v8a")
             "multi" -> listOf("arm64-v8a", "armeabi-v7a")
             "all" -> listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-            // --split-per-abi 会自行按 ABI 出包；这里给全集，避免与 splits 冲突
-            "split" -> listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+
             else -> error("未知的 -Pabi=$abi（可选 arm64 / multi / all）")
         }
 

@@ -176,23 +176,28 @@ jobs:
           # 通用包：四套 ABI 全含（arm64-v8a / armeabi-v7a / x86 / x86_64）
           build "发行版（通用，含 x86_64/x86）" "-Pabi=all" "readerplus-release-universal.apk"
 
-          # 专用包：一次 --split-per-abi 调用产出每个 ABI 一个 APK
-          ok=0
-          for attempt in 1 2 3; do
-            if flutter build apk --release --split-per-abi -Pabi=split $COMMON; then ok=1; break; fi
-            echo "第 $attempt 次构建失败（发行版分架构），10 秒后重试…"
-            sleep 10
-          done
-          [ "$ok" = "1" ] || { echo "::error::发行版分架构 三次构建均失败"; exit 1; }
+          # 专用包：从通用包裁剪得到（不触发 Gradle 的 abiFilters/splits 冲突），
+          # 删掉其它 ABI 的 lib 目录后重新对齐并签名。
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/${BUILD_TOOLS}/apksigner"
+          ZIPALIGN="$ANDROID_SDK_ROOT/build-tools/${BUILD_TOOLS}/zipalign"
+          KS="$PWD/android/debug.keystore"
           for abi in arm64-v8a armeabi-v7a x86 x86_64; do
-            src="$OUT/app-$abi-release.apk"
-            [ -f "$src" ] || { echo "::error::缺少分架构产物 $src"; exit 1; }
             case "$abi" in
               arm64-v8a) suffix=arm64 ;;
               armeabi-v7a) suffix=v7a ;;
               *) suffix="$abi" ;;
             esac
-            cp -v "$src" "$OUT/readerplus-release-$suffix.apk"
+            tmp="$OUT/rp-$suffix.tmp.apk"
+            cp "$OUT/readerplus-release-universal.apk" "$tmp"
+            for other in arm64-v8a armeabi-v7a x86 x86_64; do
+              [ "$other" = "$abi" ] || zip -q -d "$tmp" "lib/$other/*" || true
+            done
+            zip -q -d "$tmp" "META-INF/*.SF" "META-INF/*.RSA" "META-INF/*.DSA" || true
+            "$ZIPALIGN" -p -f 4 "$tmp" "$OUT/readerplus-release-$suffix.apk"
+            rm -f "$tmp"
+            "$APKSIGNER" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
+              --ks-key-alias androiddebugkey "$OUT/readerplus-release-$suffix.apk"
+            echo "已裁剪签名：readerplus-release-$suffix.apk（仅 $abi）"
           done
           ls -lh $OUT/*.apk
       - name: 生成构建摘要
