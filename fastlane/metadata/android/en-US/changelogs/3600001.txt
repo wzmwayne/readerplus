@@ -1,0 +1,6 @@
+* UI is now fully bilingual (English / Chinese), switchable in Settings.
+* App renamed to ReaderPlus.
+* Read aloud is fully offline via on-device TTS; voice models are imported by
+  the user, none are bundled.
+* Fixed a 1-pixel overflow in the reader header/footer.
+* Version code now comes from the repository, so F-Droid builds upgrade cleanly.

@@ -1,4 +1,0 @@
-* Read aloud now runs fully offline with on-device TTS; Edge TTS removed.
-* Import voice models as zip or tar.bz2; validation and background extraction.
-* App renamed to ReaderPlus and fully bilingual (English / Chinese).
-* Script support can be toggled freely, with a first-run consent gate.
