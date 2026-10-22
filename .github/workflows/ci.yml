@@ -88,14 +88,15 @@ jobs:
   android:
     name: Android APK
     runs-on: ubuntu-24.04
-    container: debian:12-slim
     needs: analyze
     if: ${{ inputs.build_android }}
     steps:
       - name: 安装基础依赖与 JDK
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ${BASE_PACKAGES} ${JAVA_PACKAGE}
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git ca-certificates curl unzip zip xz-utils tar gzip zstd jq file mawk tzdata python3 \
+            ${JAVA_PACKAGE}
           JDK_DIR="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
           echo "JAVA_HOME=$JDK_DIR" >> "$GITHUB_ENV"
           java -version
@@ -332,15 +333,15 @@ jobs:
   linux:
     name: Linux 桌面
     runs-on: ubuntu-24.04
-    container: debian:12-slim
     needs: analyze
     if: ${{ inputs.build_linux }}
     steps:
       - name: 安装基础依赖与桌面构建链
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            ${BASE_PACKAGES} build-essential clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git ca-certificates curl unzip zip xz-utils tar gzip zstd jq file mawk tzdata python3 \
+            build-essential clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       - uses: actions/checkout@v7.0.1
       - uses: subosito/flutter-action@v2.23.0
