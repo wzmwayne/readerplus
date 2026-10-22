@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/l10n.dart';
 import '../services/app_log.dart';
 
 /// 崩溃页是否正在显示（避免重复入栈与递归）。
@@ -35,6 +37,9 @@ class CrashScreen extends StatefulWidget {
 }
 
 class _CrashScreenState extends State<CrashScreen> {
+  /// 当前语言文案（跟随设置里的语言选项）
+  L10n get l => L10n.of(context.read<AppState>().settings);
+
   @override
   void initState() {
     super.initState();
@@ -71,7 +76,7 @@ class _CrashScreenState extends State<CrashScreen> {
             color: Theme.of(context).colorScheme.errorContainer,
             padding: const EdgeInsets.all(12),
             child: Text(
-              '应用遇到问题，信息已写入日志文件',
+              l.crashTitle,
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onErrorContainer,
               ),

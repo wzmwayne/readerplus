@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/l10n.dart';
 import '../services/tts/local_tts_synthesizer.dart';
 import '../services/app_log.dart';
 
@@ -938,7 +939,7 @@ class _ReaderPageState extends State<ReaderPage>
       return Scaffold(
         backgroundColor: bg,
         appBar: AppBar(),
-        body: const Center(child: Text('这本书还没有正文')),
+        body: Center(child: Text(l.readerEmptyBook)),
       );
     }
 
@@ -1674,7 +1675,7 @@ class _ReaderPageState extends State<ReaderPage>
         CheckedPopupMenuItem(
           value: 'sideMenu',
           checked: _rs.landscapeSideMenu,
-          child: const Text('横屏时菜单显示在左右'),
+          child: Text(l.readerLandscapeHint),
         ),
       ],
     );

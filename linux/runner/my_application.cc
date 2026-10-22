@@ -49,7 +49,7 @@ static void my_application_activate(GApplication* application) {
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "阅读");
+    gtk_window_set_title(window, "ReaderPlus");
   }
 
   // 允许用环境变量 READERPLUS_WINDOW_SIZE=宽x高 指定初始窗口尺寸

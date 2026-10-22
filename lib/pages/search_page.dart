@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/l10n.dart';
 import '../services/app_log.dart';
 import '../services/plugin/source_service.dart';
 import '../services/plugin/source_store.dart';
@@ -34,6 +35,9 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
+  /// 当前语言文案（跟随设置里的语言选项）
+  L10n get l => L10n.of(context.read<AppState>().settings);
+
   late final SourceStore _store = widget.store ?? SourceStore();
   final SourceService _service = const SourceService();
   final TextEditingController _query = TextEditingController();
@@ -122,7 +126,7 @@ class _SearchPageState extends State<SearchPage> {
         _append('完成：${items.length} 条');
       } catch (error) {
         if (token.cancelled) {
-          _append('已取消');
+          _append(l.searchCancelled);
           break;
         }
         AppLog.error('source', '书源 ${entry.name} 失败：$error');
@@ -135,7 +139,7 @@ class _SearchPageState extends State<SearchPage> {
     });
     _append(
       token.cancelled
-          ? '已强制停止：保留已完成的 ${collected.length} 条'
+          ? l.searchForcedStop(collected.length)
           : '全部结束：共 ${collected.length} 条',
     );
     _endRun(token);
@@ -146,7 +150,7 @@ class _SearchPageState extends State<SearchPage> {
     final token = _token;
     if (token == null) return;
     AppLog.info('source', '用户点击取消：强制停止所有运行中的脚本');
-    _append('用户取消：强制停止所有运行中的脚本');
+    _append(l.searchUserCancel);
     // 先关闭可能正打开的提问输入框（否则用户面对一个永不返回的框）
     _askAbort.value++;
     token.cancelAll();
@@ -163,7 +167,7 @@ class _SearchPageState extends State<SearchPage> {
       request,
       abort: _askAbort,
     );
-    _append(reply.ok ? '已回答（${reply.answer.length} 字符）' : '询问被取消');
+    _append(reply.ok ? l.searchAnswered(reply.answer.length) : l.searchAskCancelled);
     return reply;
   }
 
@@ -237,7 +241,7 @@ class _SearchPageState extends State<SearchPage> {
     String id,
   ) async {
     final title = item['title']?.isNotEmpty == true ? item['title']! : id;
-    final author = item['author']?.isNotEmpty == true ? item['author']! : '佚名';
+    final author = item['author']?.isNotEmpty == true ? item['author']! : l.searchAnonymous;
     final cover = item['cover'] ?? '';
     final intro = (item['description']?.isNotEmpty == true
         ? item['description']!
@@ -338,11 +342,11 @@ class _SearchPageState extends State<SearchPage> {
       // 作者/封面：脚本在下载步骤补充的优先，其次用搜索结果里的
       final finalAuthor = result.author.isNotEmpty
           ? result.author
-          : (author.isNotEmpty ? author : '佚名');
+          : (author.isNotEmpty ? author : l.searchAnonymous);
       final coverBytes = await _service.fetchCoverBytes(result, onLog: _append) ??
           await _fetchCoverFromUrl(result.coverUrl.isEmpty ? cover : '');
       _append(
-        '元数据：作者=$finalAuthor，封面=${coverBytes == null ? '无（用默认）' : '${coverBytes.length} 字节'}',
+        l.searchMeta(finalAuthor, coverBytes == null ? l.searchNoCover : l.searchCoverBytes(coverBytes.length)),
       );
       final bytes = _service.buildEpub(
         title: title,
@@ -356,10 +360,10 @@ class _SearchPageState extends State<SearchPage> {
       if (!dir.existsSync()) await dir.create(recursive: true);
       final file = File('${dir.path}/${title.replaceAll(RegExp(r'[/\\]'), '_')}.epub');
       await file.writeAsBytes(bytes, flush: true);
-      _append('已生成 EPUB：${file.path}（${bytes.length} 字节）');
+      _append(l.searchEpubDone(file.path, bytes.length));
       if (!mounted) return;
       final book = await context.read<AppState>().importBook(file);
-      _append(book == null ? '入库失败' : '已入库：${book.title}（作者 ${book.author}）');
+      _append(book == null ? l.searchImportFailed : l.searchImported(book.title, book.author));
     } catch (error) {
       AppLog.error('source', '下载失败：$error');
       _append(_explain(error, '下载'));
@@ -371,10 +375,10 @@ class _SearchPageState extends State<SearchPage> {
   /// 把运行器的结束原因说清楚：被杀死（超时/取消）≠ 脚本报错退出。
   String _explain(Object error, String action) {
     final text = '$error';
-    if (text.contains('取消')) return '$action被取消：脚本已被强制停止';
-    if (text.contains('超时')) return '$action超时：脚本已被强制停止';
+    if (text.contains('取消')) return l.searchActionCancelled(action);
+    if (text.contains('超时')) return l.searchActionTimeout(action);
     if (text.contains('异常退出') || text.contains('意外结束')) {
-      return '$action：脚本异常退出（$text）';
+      return l.searchActionCrashed(action, text);
     }
     return '$action失败：$text';
   }
@@ -408,13 +412,13 @@ class _SearchPageState extends State<SearchPage> {
         actions: [
           if (_running)
             IconButton(
-              tooltip: '取消：强制停止所有运行中的脚本',
+              tooltip: l.searchCancelTooltip,
               icon: const Icon(Icons.stop_circle_outlined),
               color: Theme.of(context).colorScheme.error,
               onPressed: _cancel,
             ),
           IconButton(
-            tooltip: '管理脚本与书源',
+            tooltip: l.searchManageSources,
             icon: const Icon(Icons.extension_outlined),
             onPressed: _running
                 ? null
@@ -456,18 +460,16 @@ class _SearchPageState extends State<SearchPage> {
                 if (!enabled)
                   const ListTile(
                     leading: Icon(Icons.search_off),
-                    title: Text('脚本支持未启用'),
+                    title: Text(l.searchOffTitle),
                     subtitle: Text(
-                      '未启用时不列出任何书源，也不能发起搜索。'
-                      '可在「设置 → 脚本 → 启用脚本支持」开启（需先通过理解确认题）；'
-                      '未启用不影响书架与阅读。',
+                      l.searchOffBody,
                     ),
                   )
                 else ...[
                   ListTile(
                     dense: true,
-                    title: Text('书源（已选 ${_selected.length}/${_sources.length}）'),
-                    subtitle: const Text('勾选参与搜索的书源；管理请点右上角'),
+                    title: Text(l.searchSourcesTitle(_selected.length, _sources.length)),
+                    subtitle: Text(l.searchSourcesHint),
                   ),
                   for (final entry in _sources)
                     CheckboxListTile(
@@ -537,7 +539,7 @@ class _SearchPageState extends State<SearchPage> {
                   ListTile(
                     dense: true,
                     title: Text('结果（${_results.length}）'),
-                    subtitle: const Text('按脚本分组：详情已在搜索时带回，点击直接查看'),
+                    subtitle: Text(l.searchGroupedHint),
                   ),
                   for (final group in _grouped())
                     ...[
@@ -567,7 +569,7 @@ class _SearchPageState extends State<SearchPage> {
                               (e) => e.id == hit.sourceId,
                             );
                             if (matches.isEmpty) {
-                              _append('该脚本已不可用');
+                              _append(l.searchSourceGone);
                               return;
                             }
                             _openDetail(matches.first, hit.item);

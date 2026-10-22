@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/l10n.dart';
 import '../app_info.dart';
 import '../services/app_log.dart';
 
@@ -18,6 +20,9 @@ class DeveloperPage extends StatefulWidget {
 }
 
 class _DeveloperPageState extends State<DeveloperPage> {
+  /// 当前语言文案（跟随设置里的语言选项）
+  L10n get l => L10n.of(context.read<AppState>().settings);
+
   String? _fileContent;
   bool _loading = true;
   bool _showLive = false;
@@ -46,7 +51,7 @@ class _DeveloperPageState extends State<DeveloperPage> {
         }
       }
       if (source == null) {
-        content = '（还没有日志文件）';
+        content = l.devNoLog;
       } else {
         final length = source.lengthSync();
         if (length > _tailLimitBytes) {
@@ -93,7 +98,7 @@ class _DeveloperPageState extends State<DeveloperPage> {
       ),
       body: ListView(
         children: [
-          const ListTile(dense: true, title: Text('应用与环境')),
+          ListTile(dense: true, title: Text(l.devAppSection)),
           ListTile(
             dense: true,
             title: const Text('版本'),
@@ -106,7 +111,7 @@ class _DeveloperPageState extends State<DeveloperPage> {
           ),
           ListTile(
             dense: true,
-            title: const Text('日志文件（单个、永远追加）'),
+            title: Text(l.devLogSection),
             subtitle: Text(AppLog.logPaths.join('\n')),
           ),
           const Divider(),

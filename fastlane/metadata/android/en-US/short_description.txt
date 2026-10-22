@@ -1,0 +1,1 @@
+A local-first reader for TXT and EPUB, with on-device text-to-speech.

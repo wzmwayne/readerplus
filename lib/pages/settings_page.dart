@@ -18,6 +18,7 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final l = L10n.of(state.settings);
     final settings = state.settings;
 
     return Scaffold(
@@ -40,18 +41,18 @@ class SettingsPage extends StatelessWidget {
               trailing: settings.themeIndex == i ? const Icon(Icons.check) : null,
             ),
           const Divider(),
-          const _SectionTitle('界面'),
+          _SectionTitle(l.settingsSectionUi),
           SwitchListTile(
             value: settings.portraitLabels,
             onChanged: (v) {
               settings.portraitLabels = v;
               state.saveSettings();
             },
-            title: const Text('底部标签显示文字'),
-            subtitle: const Text('仅竖屏生效；横屏用左侧标签栏的展开按钮'),
+            title: Text(l.settingsPortraitLabels),
+            subtitle: Text(l.settingsPortraitOnly),
           ),
           const Divider(),
-          const _SectionTitle('书架'),
+          _SectionTitle(l.settingsSectionShelf),
           SwitchListTile(
             value: settings.gridLayout,
             onChanged: (v) {
@@ -129,7 +130,7 @@ class SettingsPage extends StatelessWidget {
             value: settings.scriptsEnabled == true,
             onChanged: (value) => _setScriptsEnabled(context, value),
             secondary: const Icon(Icons.code),
-            title: const Text('启用脚本支持'),
+            title: Text(l.enableScripts),
             subtitle: Text(_scriptsStatusText(settings.scriptsEnabled)),
           ),
           ListTile(
@@ -143,24 +144,22 @@ class SettingsPage extends StatelessWidget {
             onTap: () => _pickDownloadTimeout(context),
           ),
           const Divider(),
-          const _SectionTitle('关于'),
+          _SectionTitle(l.settingsSectionAbout),
           const ListTile(
             title: Text('阅读 readerplus'),
-            subtitle: Text('多平台小说阅读器：Android 与 Linux 桌面共用一套自适应界面'),
+            subtitle: Text(l.settingsAppDescription),
           ),
           const _VersionTile(),
           const ListTile(
             title: Text('数据格式'),
             subtitle: Text(
-              '自定义 JSON（library / settings / reader_settings / sources）'
-              '，保存在应用私有目录',
+              l.settingsCustomJson,
             ),
           ),
           const ListTile(
-            title: Text('来源与致谢'),
+            title: Text(l.settingsCredits),
             subtitle: Text(
-              '部分设计思路来自开源项目 Legado（开源阅读）：排版预设数值、主题配色、'
-              '页眉页脚与翻页方式等交互设计；品牌色取自 wzml.cc.cd/logo 的前景颜色 #76DFA1',
+              l.settingsLegadoNotice,
             ),
           ),
           ListTile(
@@ -215,20 +214,20 @@ class SettingsPage extends StatelessWidget {
     if (picked == null) return;
     state.settings.langMode = picked;
     await state.saveSettings();
-    AppLog.info('settings', '界面语言已切换为 ${picked.name}');
+    AppLog.info('settings', l.settingsLangSwitched(picked.name));
   }
 
   /// 开关状态文案：关掉之后会发生什么、怎么重新打开，都说清楚。
   static String _scriptsStatusText(bool? scriptsEnabled) {
     switch (scriptsEnabled) {
       case true:
-        return '已启用：可导入并运行脚本。关闭后脚本相关功能不可用，'
+        return l.scriptsOnDetail +
             '可随时重新开启（重新开启需再次确认）';
       case false:
-        return '已关闭：脚本相关功能不可用（搜索页不列书源、插件页不可管理）。'
+        return l.scriptsOffDetail +
             '可随时重新开启（重新开启需再次确认）';
       case null:
-        return '尚未确认：脚本相关功能当前不可用。开启需先阅读说明并通过理解确认题';
+        return l.scriptsUndecidedDetail;
     }
   }
 
@@ -238,7 +237,7 @@ class SettingsPage extends StatelessWidget {
     if (!value) {
       state.settings.scriptsEnabled = false;
       await state.saveSettings();
-      AppLog.info('script', '用户在设置里关闭脚本支持');
+      AppLog.info('script', l.settingsScriptTurnedOff);
       return;
     }
     // 闸门页自己负责落盘：通过 ⇒ true，暂不启用 ⇒ false
@@ -277,7 +276,7 @@ class SettingsPage extends StatelessWidget {
     await state.saveSettings();
     AppLog.info(
       'settings',
-      '下载脚本运行上限已设为 ${picked == 0 ? '不限制' : '$picked 秒'}',
+      l.settingsDownloadLimitSet(picked),
     );
   }
 }

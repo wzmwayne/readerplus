@@ -4,6 +4,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/l10n.dart';
 import '../services/app_log.dart';
 import '../services/plugin/script_meta.dart';
 import '../services/plugin/source_store.dart';
@@ -31,6 +32,9 @@ class ScriptsPage extends StatefulWidget {
 }
 
 class _ScriptsPageState extends State<ScriptsPage> {
+  /// 当前语言文案（跟随设置里的语言选项）
+  L10n get l => L10n.of(context.read<AppState>().settings);
+
   late final SourceStore _store = widget.store ?? SourceStore();
   List<SourceEntry> _scripts = const [];
   bool _loading = true;
@@ -88,7 +92,7 @@ class _ScriptsPageState extends State<ScriptsPage> {
     if (file == null || !mounted) return;
     final name = file.name.toLowerCase();
     if (!name.endsWith('.ht') && !name.endsWith('.json')) {
-      AppLog.info('script', '拒绝导入：插件页只接受 .ht 脚本与 .json 规则');
+      AppLog.info('script', l.scriptRejectImport);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('插件页只接受 .ht 脚本或 .json 规则')),
@@ -183,7 +187,7 @@ class _ScriptsPageState extends State<ScriptsPage> {
             style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
-              helperText: '类型由头部 // @script kind=source|clean|tool 决定',
+              helperText: l.scriptKindHint,
             ),
           ),
         ),
@@ -282,11 +286,11 @@ result('ok')
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(height: 12),
-                Text('脚本支持未启用', style: theme.textTheme.titleMedium),
+                Text(l.scriptOffTitle, style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Text(
                   '脚本支持默认关闭：关闭状态下不加载、不运行、不管理任何脚本，'
-                  '书架与阅读等功能不受影响。'
+                  l.scriptOffBody
                   '开启需要先阅读说明并通过理解确认题。',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium,
@@ -345,8 +349,8 @@ result('ok')
               children: [
                 if (_scripts.isEmpty)
                   const ListTile(
-                    title: Text('还没有脚本'),
-                    subtitle: Text('用右上角按钮导入 .ht 或从模板新建'),
+                    title: Text(l.scriptEmptyTitle),
+                    subtitle: Text(l.scriptEmptySubtitle),
                   ),
                 for (final kind in ScriptKind.values)
                   ...(grouped[kind]?.isNotEmpty == true

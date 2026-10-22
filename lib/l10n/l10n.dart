@@ -86,6 +86,102 @@ class L10n {
   //
   // 规则：`zh` 是基准，`en` 必须逐条对照功能，不写空话、不承诺未实现的能力。
 
+  // ---------------- 搜索 ----------------
+  String get searchCancelled => _t('search.cancelled');
+  String searchForcedStop(int n) =>
+      _t('search.forcedStop').replaceAll('{n}', '$n');
+  String get searchUserCancel => _t('search.userCancel');
+  String searchAnswered(int n) => _t('search.answered').replaceAll('{n}', '$n');
+  String get searchAskCancelled => _t('search.askCancelled');
+  String get searchAnonymous => _t('search.anonymous');
+  String searchMeta(String author, String cover) =>
+      _t('search.meta').replaceAll('{author}', author).replaceAll('{cover}', cover);
+  String get searchNoCover => _t('search.noCover');
+  String searchCoverBytes(int n) =>
+      _t('search.coverBytes').replaceAll('{n}', '$n');
+  String searchEpubDone(String path, int n) =>
+      _t('search.epubDone').replaceAll('{path}', path).replaceAll('{n}', '$n');
+  String get searchImportFailed => _t('search.importFailed');
+  String searchImported(String title, String author) =>
+      _t('search.imported').replaceAll('{title}', title).replaceAll('{author}', author);
+  String searchActionCancelled(String action) =>
+      _t('search.actionCancelled').replaceAll('{action}', action);
+  String searchActionTimeout(String action) =>
+      _t('search.actionTimeout').replaceAll('{action}', action);
+  String searchActionCrashed(String action, String detail) =>
+      _t('search.actionCrashed').replaceAll('{action}', action).replaceAll('{detail}', detail);
+  String get searchCancelTooltip => _t('search.cancelTooltip');
+  String get searchManageSources => _t('search.manageSources');
+  String get searchOffTitle => _t('search.offTitle');
+  String get searchOffBody => _t('search.offBody');
+  String searchSourcesTitle(int sel, int total) =>
+      _t('search.sourcesTitle').replaceAll('{sel}', '$sel').replaceAll('{total}', '$total');
+  String get searchSourcesHint => _t('search.sourcesHint');
+  String get searchGroupedHint => _t('search.groupedHint');
+  String get searchSourceGone => _t('search.sourceGone');
+
+  // ---------------- 脚本页 ----------------
+  String get scriptRejectImport => _t('scriptPage.rejectImport');
+  String get scriptKindHint => _t('scriptPage.kindHint');
+  String get scriptOffTitle => _t('scriptPage.offTitle');
+  String get scriptOffBody => _t('scriptPage.offBody');
+  String get scriptEmptyTitle => _t('scriptPage.emptyTitle');
+  String get scriptEmptySubtitle => _t('scriptPage.emptySubtitle');
+
+  // ---------------- 书架 ----------------
+  String shelfTxtDone(int n) => _t('shelf.txtDone').replaceAll('{n}', '$n');
+  String shelfImported(String title) =>
+      _t('shelf.imported').replaceAll('{title}', title);
+  String get shelfImportFailed => _t('shelf.importFailed');
+  String get shelfFormatsHint => _t('shelf.formatsHint');
+  String get shelfEmptyHint => _t('shelf.emptyHint');
+
+  // ---------------- 开发者 / 崩溃 ----------------
+  String get devNoLog => _t('dev.noLog');
+  String get devAppSection => _t('dev.appSection');
+  String get devLogSection => _t('dev.logSection');
+  String get crashTitle => _t('crash.title');
+
+  // ---------------- 阅读器 ----------------
+  String get readerEmptyBook => _t('reader.emptyBook');
+  String get readerLandscapeHint => _t('reader.landscapeHint');
+
+  // ---------------- 朗读面板 ----------------
+  String get ttsImportTitle => _t('tts.importTitle');
+  String get ttsImportHint => _t('tts.importHint');
+  String get ttsPickFile => _t('tts.pickFile');
+  String get ttsLocalModel => _t('tts.localModel');
+  String get ttsNotImported => _t('tts.notImported');
+  String get ttsImportTooltip => _t('tts.importTooltip');
+  String get ttsDeleteTooltip => _t('tts.deleteTooltip');
+  String ttsImported(String name) => _t('tts.imported').replaceAll('{name}', name);
+  String ttsImportFailed(String msg) => _t('tts.importFailed').replaceAll('{msg}', msg);
+  String ttsDeleted(String name) => _t('tts.deleted').replaceAll('{name}', name);
+  String get ttsRate => _t('tts.rate');
+  String get ttsRateNormal => _t('tts.rateNormal');
+
+  // ---------------- 设置页其余 ----------------
+  String get settingsSectionUi => _t('settings.ui.section');
+  String get settingsSectionAbout => _t('settings.about.section');
+  String get settingsLegadoNotice => _t('settings.about.legado');
+  String get settingsLicense => _t('settings.about.license');
+
+  String get settingsPortraitOnly => _t('settings.portraitOnly');
+  String get settingsAppDescription => _t('settings.appDescription');
+  String get settingsCustomJson => _t('settings.customJson');
+  String get settingsCredits => _t('settings.credits');
+  String get scriptsOnDetail => _t('settings.script.onDetail');
+  String get scriptsOffDetail => _t('settings.script.offDetail');
+  String get scriptsUndecidedDetail => _t('settings.script.undecidedDetail');
+  String get settingsScriptTurnedOff => _t('settings.script.turnedOff');
+  String settingsLangSwitched(String mode) =>
+      _t('settings.langSwitched').replaceAll('{mode}', mode);
+  String settingsDownloadLimitSet(int seconds) => seconds == 0
+      ? _t('settings.downloadLimitSetUnlimited')
+      : _t('settings.downloadLimitSet').replaceAll('{n}', '$seconds');
+  String get settingsSectionShelf => _t('settings.shelf.section');
+  String get settingsPortraitLabels => _t('settings.portraitLabels');
+
   static const Map<String, Map<String, String>> _texts = {
     'app.title': {'zh': '阅读', 'en': 'Reader'},
 
@@ -215,5 +311,100 @@ class L10n {
       'en': 'Script support is off: search needs a book source script. '
           'Enable it in Settings → Scripts.',
     },
+
+    'search.cancelled': {'zh': '已取消', 'en': 'Cancelled'},
+    'search.forcedStop': {
+      'zh': '已强制停止：保留已完成的 {n} 条',
+      'en': 'Force-stopped: kept {n} completed result(s)',
+    },
+    'search.userCancel': {'zh': '用户取消：强制停止所有运行中的脚本', 'en': 'User cancelled: all running scripts force-stopped'},
+    'search.answered': {'zh': '已回答（{n} 字符）', 'en': 'Answered ({n} chars)'},
+    'search.askCancelled': {'zh': '询问被取消', 'en': 'Prompt cancelled'},
+    'search.anonymous': {'zh': '佚名', 'en': 'Unknown'},
+    'search.meta': {'zh': '元数据：作者={author}，封面={cover}', 'en': 'Metadata: author={author}, cover={cover}'},
+    'search.noCover': {'zh': '无（用默认）', 'en': 'none (default)'},
+    'search.coverBytes': {'zh': '{n} 字节', 'en': '{n} bytes'},
+    'search.epubDone': {'zh': '已生成 EPUB：{path}（{n} 字节）', 'en': 'EPUB created: {path} ({n} bytes)'},
+    'search.importFailed': {'zh': '入库失败', 'en': 'Failed to add to library'},
+    'search.imported': {'zh': '已入库：{title}（作者 {author}）', 'en': 'Added: {title} (by {author})'},
+    'search.actionCancelled': {'zh': '{action}被取消：脚本已被强制停止', 'en': '{action} cancelled: script force-stopped'},
+    'search.actionTimeout': {'zh': '{action}超时：脚本已被强制停止', 'en': '{action} timed out: script force-stopped'},
+    'search.actionCrashed': {'zh': '{action}：脚本异常退出（{detail}）', 'en': '{action}: script crashed ({detail})'},
+    'search.cancelTooltip': {'zh': '取消：强制停止所有运行中的脚本', 'en': 'Cancel: force-stop all running scripts'},
+    'search.manageSources': {'zh': '管理脚本与书源', 'en': 'Manage scripts and sources'},
+    'search.offTitle': {'zh': '脚本支持未启用', 'en': 'Script support is off'},
+    'search.offBody': {
+      'zh': '未启用时不列出任何书源，也不能发起搜索。可在「设置 → 脚本 → 启用脚本支持」开启（需先通过理解确认题）；未启用不影响书架与阅读。',
+      'en': 'No sources are listed and search is disabled. Enable it in Settings → Scripts → Enable script support (an understanding check is required first). The shelf and reader are unaffected.',
+    },
+    'search.sourcesTitle': {'zh': '书源（已选 {sel}/{total}）', 'en': 'Sources ({sel}/{total} selected)'},
+    'search.sourcesHint': {'zh': '勾选参与搜索的书源；管理请点右上角', 'en': 'Tick sources to include; manage via the top-right button'},
+    'search.groupedHint': {'zh': '按脚本分组：详情已在搜索时带回，点击直接查看', 'en': 'Grouped by script: details come from the search, tap to open'},
+    'search.sourceGone': {'zh': '该脚本已不可用', 'en': 'This script is no longer available'},
+
+    'scriptPage.rejectImport': {'zh': '拒绝导入：插件页只接受 .ht 脚本与 .json 规则', 'en': 'Import rejected: only .ht scripts and .json rules are accepted here'},
+    'scriptPage.kindHint': {'zh': '类型由头部 // @script kind=source|clean|tool 决定', 'en': 'Type is set by the header // @script kind=source|clean|tool'},
+    'scriptPage.offTitle': {'zh': '脚本支持未启用', 'en': 'Script support is off'},
+    'scriptPage.offBody': {'zh': '书架与阅读等功能不受影响。', 'en': 'The shelf, reader and other features are unaffected.'},
+    'scriptPage.emptyTitle': {'zh': '还没有脚本', 'en': 'No scripts yet'},
+    'scriptPage.emptySubtitle': {'zh': '用右上角按钮导入 .ht 或从模板新建', 'en': 'Import a .ht file or create one from a template'},
+
+    'shelf.txtDone': {'zh': 'TXT 已转为 EPUB（{n} 字节）', 'en': 'TXT converted to EPUB ({n} bytes)'},
+    'shelf.imported': {'zh': '已导入：{title}', 'en': 'Imported: {title}'},
+    'shelf.importFailed': {'zh': '导入失败，详见开发者页日志', 'en': 'Import failed; see the developer log'},
+    'shelf.formatsHint': {'zh': '支持 TXT（UTF-8 / GBK）与 EPUB 2 / 3', 'en': 'Supports TXT (UTF-8 / GBK) and EPUB 2 / 3'},
+    'shelf.emptyHint': {'zh': '点击右上角 + 导入本地 TXT / EPUB 文件', 'en': 'Tap + to import a local TXT / EPUB file'},
+
+    'dev.noLog': {'zh': '（还没有日志文件）', 'en': '(no log file yet)'},
+    'dev.appSection': {'zh': '应用与环境', 'en': 'App and environment'},
+    'dev.logSection': {'zh': '日志文件（单个、永远追加）', 'en': 'Log file (single, append-only)'},
+    'crash.title': {'zh': '应用遇到问题，信息已写入日志文件', 'en': 'Something went wrong; details were written to the log'},
+
+    'reader.emptyBook': {'zh': '这本书还没有正文', 'en': 'This book has no text yet'},
+    'reader.landscapeHint': {'zh': '横屏时菜单显示在左右', 'en': 'In landscape the menu is shown on the sides'},
+
+    'tts.importTitle': {'zh': '导入语音模型', 'en': 'Import a voice model'},
+    'tts.importHint': {
+      'zh': '① Android：请先把模型包放到「下载 / Download」目录，再从列表里选择它。\n'
+          '② Linux / 桌面：请把模型包放在不含中文与空格的英文路径下（例如 ~/Downloads），'
+          '并确认当前用户对该文件有读权限。\n\n'
+          '支持 .zip / .tar.bz2 / .tar.gz / .tar，无需解压。',
+      'en': '1) Android: put the model package in your Download folder first, then pick it from the list.\n'
+          '2) Linux / desktop: keep the path ASCII without spaces (e.g. ~/Downloads) and make sure the app can read the file.\n\n'
+          'Supports .zip / .tar.bz2 / .tar.gz / .tar; no need to extract.',
+    },
+    'tts.pickFile': {'zh': '选择文件', 'en': 'Choose file'},
+    'tts.localModel': {'zh': '本地语音模型', 'en': 'Local voice model'},
+    'tts.notImported': {'zh': '未导入', 'en': 'Not imported'},
+    'tts.importTooltip': {'zh': '导入模型包（zip / tar.bz2）', 'en': 'Import a model package (zip / tar.bz2)'},
+    'tts.deleteTooltip': {'zh': '删除该模型', 'en': 'Delete this model'},
+    'tts.imported': {'zh': '已导入：{name}', 'en': 'Imported: {name}'},
+    'tts.importFailed': {'zh': '导入失败：{msg}', 'en': 'Import failed: {msg}'},
+    'tts.deleted': {'zh': '已删除：{name}', 'en': 'Deleted: {name}'},
+    'tts.rate': {'zh': '语速', 'en': 'Speed'},
+    'tts.rateNormal': {'zh': '正常', 'en': 'Normal'},
+
+    'settings.ui.section': {'zh': '界面', 'en': 'Interface'},
+    'settings.about.section': {'zh': '关于', 'en': 'About'},
+    'settings.about.legado': {
+      'zh': '部分界面设计与交互逻辑借鉴自开源项目 Legado（GPL-3.0）；本项目未包含其源代码。',
+      'en': 'Parts of the UI design and interaction logic are inspired by the open-source project Legado (GPL-3.0); this project contains none of its source code.',
+    },
+    'settings.about.license': {'zh': 'GPL-3.0-or-later，详见仓库 LICENSE', 'en': 'GPL-3.0-or-later; see LICENSE in the repository'},
+
+    'settings.portraitOnly': {'zh': '仅竖屏生效；横屏用左侧标签栏的展开按钮', 'en': 'Portrait only; in landscape use the rail expand button'},
+    'settings.appDescription': {'zh': '多平台小说阅读器：Android 与 Linux 桌面共用一套自适应界面', 'en': 'A multi-platform reader: one adaptive UI for Android and Linux desktop'},
+    'settings.customJson': {'zh': '自定义 JSON（library / settings / reader_settings / sources），保存在应用私有目录', 'en': 'Custom JSON (library / settings / reader_settings / sources) stored in the app private directory'},
+    'settings.credits': {'zh': '来源与致谢', 'en': 'Credits'},
+    'settings.script.onDetail': {'zh': '已启用：可导入并运行脚本。关闭后脚本相关功能不可用，', 'en': 'Enabled: scripts can be imported and run. When off, '},
+    'settings.script.offDetail': {'zh': '已关闭：脚本相关功能不可用（搜索页不列书源、插件页不可管理）。', 'en': 'Disabled: script features are unavailable (no sources in search, no management on the plugins page).'},
+    'settings.script.undecidedDetail': {'zh': '尚未确认：脚本相关功能当前不可用。开启需先阅读说明并通过理解确认题', 'en': 'Undecided: script features are unavailable. Enabling requires reading the notice and passing the understanding check.'},
+    'settings.script.turnedOff': {'zh': '用户在设置里关闭脚本支持', 'en': 'User disabled script support in settings'},
+    'settings.langSwitched': {'zh': '界面语言已切换为 {mode}', 'en': 'Language switched to {mode}'},
+    'settings.downloadLimitSet': {'zh': '下载脚本运行上限已设为 {n} 秒', 'en': 'Script download timeout set to {n} s'},
+    'settings.downloadLimitSetUnlimited': {'zh': '下载脚本运行上限已设为 不限制', 'en': 'Script download timeout set to unlimited'},
+
+    'settings.shelf.section': {'zh': '书架', 'en': 'Shelf'},
+    'settings.portraitLabels': {'zh': '底部标签显示文字', 'en': 'Show labels on bottom tabs'},
   };
 }

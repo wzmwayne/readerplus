@@ -127,10 +127,13 @@ packaging/icon/              图标生成脚本（极简黑白书本）
 阅读器的排版预设数值（原 `readConfig`）、主题配色（原 `themeConfig`），以及页眉页脚、
 翻页方式（覆盖 / 滑动 / 滚动 / 无动画）等交互设计，均参考了该项目的实现与默认数据。
 
-Legado 以 GPL-3.0 发布，本项目沿用同一许可证，并保留其原始版权声明。
-
-品牌色取自 https://wzml.cc.cd/logo 的前景颜色 `#76DFA1`，浅色与深色主题都由它生成。
-
 ## 许可证
 
-GPL-3.0，详见 [LICENSE](LICENSE)。
+本项目以 **GPL-3.0-or-later** 发布，全文见 [LICENSE](LICENSE)。
+
+对应源码：<https://github.com/wzmwayne/readerplus>（分发二进制时请一并提供该地址）。
+
+### 与 Legado 的关系
+
+部分**界面设计与交互逻辑**（排版预设数值、主题配色、页眉页脚与翻页方式等）借鉴自开源项目
+[Legado](https://github.com/gedoor/legado)（GPL-3.0）。**本项目为独立实现，未包含 Legado 的源代码。**

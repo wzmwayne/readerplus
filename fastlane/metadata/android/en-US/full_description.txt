@@ -1,0 +1,11 @@
+ReaderPlus is a local-first reading app for Android and Linux desktop.
+
+* Reads local TXT (UTF-8 / GBK) and EPUB 2 / 3 files; nothing is uploaded.
+* No telemetry, no analytics, no account. The only permission is INTERNET, used by
+  optional user-imported book-source scripts and by the optional read-aloud download.
+* Reader features: themes, typography presets, headers/footers, page-turn modes,
+  landscape two-column layout, automatic progress and read-markers.
+* Read aloud runs fully offline: import a voice model package (zip or tar.bz2)
+  yourself; no model is bundled and no audio leaves the device.
+* Book-source scripts are optional and off by default; enabling them requires
+  reading a notice and passing an understanding check.

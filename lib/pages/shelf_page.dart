@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/l10n.dart';
 import '../models/book.dart';
 import '../reader/reader_page.dart';
 import '../services/app_log.dart';
@@ -21,6 +22,9 @@ class ShelfPage extends StatefulWidget {
 }
 
 class _ShelfPageState extends State<ShelfPage> {
+  /// 当前语言文案（跟随设置里的语言选项）
+  L10n get l => L10n.of(context.read<AppState>().settings);
+
   String _keyword = '';
 
   static const _bookTypeGroup = XTypeGroup(
@@ -79,11 +83,11 @@ class _ShelfPageState extends State<ShelfPage> {
         );
         final epub = File('${dir.path}/$name.epub');
         await epub.writeAsBytes(bytes, flush: true);
-        AppLog.info('shelf', 'TXT 已转为 EPUB：${epub.path}（${bytes.length} 字节）');
+        AppLog.info('shelf', l.shelfTxtDone(bytes.length));
         final book = await state.importBook(epub);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已导入：${book?.title ?? name}')),
+          SnackBar(content: Text(l.shelfImported(book?.title ?? name))),
         );
         return;
       }
@@ -93,7 +97,7 @@ class _ShelfPageState extends State<ShelfPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            book == null ? '导入失败，详见开发者页日志' : '已导入：${book.title}',
+            book == null ? l.shelfImportFailed : l.shelfImported(book.title),
           ),
         ),
       );
@@ -165,10 +169,10 @@ class _ShelfPageState extends State<ShelfPage> {
         const SizedBox(height: 12),
         const Text('书架还是空的'),
         const SizedBox(height: 2),
-        const Text('支持 TXT（UTF-8 / GBK）与 EPUB 2 / 3', style: TextStyle(fontSize: 11, color: Colors.black38)),
+        Text(l.shelfFormatsHint, style: const TextStyle(fontSize: 11, color: Colors.black38)),
         const SizedBox(height: 4),
         Text(
-          '点击右上角 + 导入本地 TXT / EPUB 文件',
+          l.shelfEmptyHint,
           style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
         ),
       ],

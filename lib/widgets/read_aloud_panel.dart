@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import 'package:file_selector/file_selector.dart';
 
+import '../l10n/l10n.dart';
 import '../services/tts/local_tts_synthesizer.dart';
 import '../services/tts/tts_model_store.dart';
 import '../services/tts/read_aloud_controller.dart';
@@ -78,6 +79,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
   /// 导入一个模型包（zip / tar.bz2 / tar.gz / tar），成功后自动选中。
   Future<void> _importModel() async {
     final state = context.read<AppState>();
+    final l10n = L10n.of(state.settings);
     // 不做任何后缀/MIME 筛选：Android 的 file_selector 会把 extensions 映射成 MIME，
     // .tar.bz2 这类双后缀会被判成 application/octet-stream 而置灰不可选（实测只能选 .gz/.zip）。
     // 安全边界放在导入器：它按**内容魔数**识别 zip / tar.bz2 / tar.gz / tar，根本不看扩展名；
@@ -87,13 +89,8 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('导入语音模型'),
-        content: const Text(
-          '① Android：请先把模型包放到「下载 / Download」目录，再从列表里选择它。\n'
-          '② Linux / 桌面：请把模型包放在不含中文与空格的英文路径下（例如 ~/Downloads），'
-          '并确认当前用户对该文件有读权限。\n\n'
-          '支持 .zip / .tar.bz2 / .tar.gz / .tar，无需解压。',
-        ),
+        title: Text(L10n.of(context.read<AppState>().settings).ttsImportTitle),
+        content: Text(l10n.ttsImportHint),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -117,7 +114,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
       state.readerSettings.ttsVoice = model.id;
       await state.saveReaderSettings();
       await _loadModels();
-      _snack('已导入：${model.name}');
+      _snack(l10n.ttsImported(model.name));
     } on TtsModelImportException catch (e) {
       _snack('导入失败：${e.message}');
     } catch (e) {
@@ -131,7 +128,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
     await LocalTtsSynthesizer.dispose(model.id);
     await LocalTtsSynthesizer.store.delete(model);
     await _loadModels();
-    _snack('已删除：${model.name}');
+    _snack(l10n.ttsDeleted(model.name));
   }
 
   void _snack(String text) {
@@ -199,7 +196,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
           children: [
             Icon(Icons.record_voice_over_outlined, size: 18, color: _text(0.7)),
             const SizedBox(width: 8),
-            Text('本地语音模型', style: TextStyle(fontSize: 13, color: _text(0.7))),
+            Text(l10n.ttsLocalModel, style: TextStyle(fontSize: 13, color: _text(0.7))),
             const Spacer(),
             Text(
               _selected?.name ?? '未导入',
@@ -251,7 +248,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
         ),
         Row(
           children: [
-            Text('语速', style: TextStyle(fontSize: 13, color: _text(0.7))),
+            Text(l10n.ttsRate, style: TextStyle(fontSize: 13, color: _text(0.7))),
             IconButton(
               visualDensity: VisualDensity.compact,
               icon: Icon(Icons.remove, size: 18, color: _text(0.8)),
