@@ -408,7 +408,7 @@ class _SearchPageState extends State<SearchPage> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('搜索'),
+        title: Text('搜索'),
         actions: [
           if (_running)
             IconButton(
@@ -458,7 +458,7 @@ class _SearchPageState extends State<SearchPage> {
                   ),
                 ),
                 if (!enabled)
-                  const ListTile(
+                  ListTile(
                     leading: Icon(Icons.search_off),
                     title: Text(l.searchOffTitle),
                     subtitle: Text(

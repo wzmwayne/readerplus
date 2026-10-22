@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../state/app_state.dart';
 import '../l10n/l10n.dart';
 import '../app_info.dart';
 import '../services/app_log.dart';

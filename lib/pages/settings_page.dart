@@ -25,7 +25,7 @@ class SettingsPage extends StatelessWidget {
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
         children: [
-          const _SectionTitle('主题配色'),
+          _SectionTitle('主题配色'),
           for (var i = 0; i < kAppThemes.length; i++)
             ListTile(
               onTap: () => state.setAppTheme(i),
@@ -113,7 +113,7 @@ class SettingsPage extends StatelessWidget {
           const Divider(),
           const SettingsReadAloudSection(),
           const Divider(),
-          const _SectionTitle('界面'),
+          _SectionTitle('界面'),
           Builder(
             builder: (context) {
               final l = L10n.of(state.settings);
@@ -125,7 +125,7 @@ class SettingsPage extends StatelessWidget {
               );
             },
           ),
-          const _SectionTitle('脚本'),
+          _SectionTitle('脚本'),
           SwitchListTile(
             value: settings.scriptsEnabled == true,
             onChanged: (value) => _setScriptsEnabled(context, value),
@@ -145,18 +145,18 @@ class SettingsPage extends StatelessWidget {
           ),
           const Divider(),
           _SectionTitle(l.settingsSectionAbout),
-          const ListTile(
+          ListTile(
             title: Text('阅读 readerplus'),
             subtitle: Text(l.settingsAppDescription),
           ),
           const _VersionTile(),
-          const ListTile(
+          ListTile(
             title: Text('数据格式'),
             subtitle: Text(
               l.settingsCustomJson,
             ),
           ),
-          const ListTile(
+          ListTile(
             title: Text(l.settingsCredits),
             subtitle: Text(
               l.settingsLegadoNotice,
@@ -282,7 +282,7 @@ class SettingsPage extends StatelessWidget {
 }
 
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.text);
+  _SectionTitle(this.text);
 
   final String text;
 

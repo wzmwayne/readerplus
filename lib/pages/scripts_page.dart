@@ -185,8 +185,8 @@ class _ScriptsPageState extends State<ScriptsPage> {
             maxLines: null,
             expands: true,
             style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
               helperText: l.scriptKindHint,
             ),
           ),
@@ -289,14 +289,12 @@ result('ok')
                 Text(l.scriptOffTitle, style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Text(
-                  '脚本支持默认关闭：关闭状态下不加载、不运行、不管理任何脚本，'
-                  l.scriptOffBody
-                  '开启需要先阅读说明并通过理解确认题。',
+                  l.scriptOffBody,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 20),
-                FilledButton(onPressed: _openGate, child: const Text('去开启')),
+                FilledButton(onPressed: _openGate, child: Text(l.offGoEnable)),
               ],
             ),
           ),
@@ -348,7 +346,7 @@ result('ok')
           : ListView(
               children: [
                 if (_scripts.isEmpty)
-                  const ListTile(
+                  ListTile(
                     title: Text(l.scriptEmptyTitle),
                     subtitle: Text(l.scriptEmptySubtitle),
                   ),
