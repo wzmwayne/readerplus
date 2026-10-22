@@ -269,7 +269,9 @@ class _ReaderPageState extends State<ReaderPage>
     final textHeight = rs.textSize * 0.68;
     const padding = 12.0;
     final showLine = isHeader ? rs.showHeaderLine : rs.showFooterLine;
-    return textHeight + padding + (showLine ? 8 : 0);
+    // +1：字号×0.68 与字体实际行高存在不足 1px 的误差，
+    // 固定高度下会触发 "BOTTOM OVERFLOWED BY 1.00 PIXELS"，留 1px 余量即可。
+    return textHeight + padding + (showLine ? 8 : 0) + 1;
   }
 
   String _chapterTextOf(int index) {
