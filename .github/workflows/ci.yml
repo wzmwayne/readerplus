@@ -179,7 +179,7 @@ jobs:
           # 专用包：一次 --split-per-abi 调用产出每个 ABI 一个 APK
           ok=0
           for attempt in 1 2 3; do
-            if flutter build apk --release --split-per-abi -Pabi=all $COMMON; then ok=1; break; fi
+            if flutter build apk --release --split-per-abi -Pabi=split $COMMON; then ok=1; break; fi
             echo "第 $attempt 次构建失败（发行版分架构），10 秒后重试…"
             sleep 10
           done
