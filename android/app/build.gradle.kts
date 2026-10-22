@@ -34,20 +34,16 @@ android {
             "arm64" -> listOf("arm64-v8a")
             "multi" -> listOf("arm64-v8a", "armeabi-v7a")
             "all" -> listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-            // 交给 --split-per-abi，这里不设 abiFilters
-            "split" -> emptyList<String>()
+            // --split-per-abi 会自行按 ABI 出包；这里给全集，避免与 splits 冲突
+            "split" -> listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
             else -> error("未知的 -Pabi=$abi（可选 arm64 / multi / all）")
         }
 
     defaultConfig {
         applicationId = "wzmwayne.reader"
-        // -Pabi=split 时由 Flutter 的 --split-per-abi 接管 ABI，
-        // 此时不能再设 ndk.abiFilters（Gradle 明确禁止两者并存）。
-        if (abiSelection.isNotEmpty) {
-            ndk {
-                abiFilters.clear()
-                abiFilters.addAll(abiSelection)
-            }
+        ndk {
+            abiFilters.clear()
+            abiFilters.addAll(abiSelection)
         }
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
