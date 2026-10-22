@@ -189,10 +189,18 @@ jobs:
             esac
             tmp="$OUT/rp-$suffix.tmp.apk"
             cp "$OUT/readerplus-release-universal.apk" "$tmp"
+            # 用 zipinfo 精确列出再删；直接通配符在部分 zip 版本下不生效
             for other in arm64-v8a armeabi-v7a x86 x86_64; do
-              [ "$other" = "$abi" ] || zip -q -d "$tmp" "lib/$other/*" || true
+              [ "$other" = "$abi" ] && continue
+              zipinfo -1 "$tmp" | grep -E "^lib/$other/" > /tmp/rm.list || true
+              if [ -s /tmp/rm.list ]; then
+                zip -q -d "$tmp" $(cat /tmp/rm.list | tr '\n' ' ')
+                echo "  删除 $other：$(wc -l < /tmp/rm.list) 个条目"
+              fi
             done
-            zip -q -d "$tmp" "META-INF/*.SF" "META-INF/*.RSA" "META-INF/*.DSA" || true
+            zipinfo -1 "$tmp" | grep -E "^META-INF/.*\.(SF|RSA|DSA)$" > /tmp/sig.list || true
+            [ -s /tmp/sig.list ] && zip -q -d "$tmp" $(cat /tmp/sig.list | tr '\n' ' ')
+            echo "  剩余 ABI：$(zipinfo -1 "$tmp" | grep -oE '^lib/[^/]+' | sort -u | tr '\n' ' ')"
             "$ZIPALIGN" -p -f 4 "$tmp" "$OUT/readerplus-release-$suffix.apk"
             rm -f "$tmp"
             "$APKSIGNER" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
