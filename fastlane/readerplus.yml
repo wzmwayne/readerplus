@@ -1,0 +1,43 @@
+Categories:
+  - Reading
+License: GPL-3.0-or-later
+AuthorName: wzmwayne
+SourceCode: https://github.com/wzmwayne/readerplus
+IssueTracker: https://github.com/wzmwayne/readerplus/issues
+Changelog: https://github.com/wzmwayne/readerplus/releases
+
+AutoName: ReaderPlus
+
+RepoType: git
+Repo: https://github.com/wzmwayne/readerplus.git
+
+Builds:
+  - versionName: 1.1.4
+    versionCode: 3600001
+    commit: TODO_FILL_RELEASE_COMMIT_SHA
+    sudo:
+      - apt-get update
+      - apt-get install -y ninja-build openjdk-17-jdk-headless
+      - update-alternatives --auto java
+    output: build/app/outputs/flutter-apk/app-release.apk
+    srclibs:
+      - flutter@3.47.0
+    rm:
+      - ios
+      - linux
+      - macos
+      - test
+      - web
+      - windows
+    prebuild: JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $$SDK$$/cmdline-tools/latest/bin/sdkmanager
+      'cmake;3.22.1'
+    build:
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+      - $$flutter$$/bin/flutter build apk --release
+    ndk: 28.2.13676358
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.1.4
+CurrentVersionCode: 3600001
