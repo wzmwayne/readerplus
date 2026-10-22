@@ -14,7 +14,7 @@ Repo: https://github.com/wzmwayne/readerplus.git
 Builds:
   - versionName: 1.1.4
     versionCode: 3600001
-    commit: TODO_FILL_RELEASE_COMMIT_SHA
+    commit: b4caaf51676f3d70768bba5ec3668c2b55b1cba8
     sudo:
       - apt-get update
       - apt-get install -y ninja-build openjdk-17-jdk-headless
