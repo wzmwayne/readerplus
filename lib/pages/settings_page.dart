@@ -131,7 +131,7 @@ class SettingsPage extends StatelessWidget {
             onChanged: (value) => _setScriptsEnabled(context, value),
             secondary: const Icon(Icons.code),
             title: Text(l.enableScripts),
-            subtitle: Text(_scriptsStatusText(settings.scriptsEnabled)),
+            subtitle: Text(_scriptsStatusText(l, settings.scriptsEnabled)),
           ),
           ListTile(
             leading: const Icon(Icons.hourglass_empty),
@@ -218,14 +218,12 @@ class SettingsPage extends StatelessWidget {
   }
 
   /// 开关状态文案：关掉之后会发生什么、怎么重新打开，都说清楚。
-  static String _scriptsStatusText(bool? scriptsEnabled) {
+  static String _scriptsStatusText(L10n l, bool? scriptsEnabled) {
     switch (scriptsEnabled) {
       case true:
-        return l.scriptsOnDetail +
-            '可随时重新开启（重新开启需再次确认）';
+        return l.scriptsOnDetail;
       case false:
-        return l.scriptsOffDetail +
-            '可随时重新开启（重新开启需再次确认）';
+        return l.scriptsOffDetail;
       case null:
         return l.scriptsUndecidedDetail;
     }
@@ -234,6 +232,7 @@ class SettingsPage extends StatelessWidget {
   /// 关 → 开必须过闸门（通过才置 true）；开 → 关直接置 false。
   Future<void> _setScriptsEnabled(BuildContext context, bool value) async {
     final state = context.read<AppState>();
+    final l = L10n.of(state.settings);
     if (!value) {
       state.settings.scriptsEnabled = false;
       await state.saveSettings();
@@ -276,7 +275,7 @@ class SettingsPage extends StatelessWidget {
     await state.saveSettings();
     AppLog.info(
       'settings',
-      l.settingsDownloadLimitSet(picked),
+      L10n.of(state.settings).settingsDownloadLimitSet(picked),
     );
   }
 }

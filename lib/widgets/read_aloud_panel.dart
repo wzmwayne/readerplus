@@ -41,6 +41,8 @@ class ReadAloudSettingsPanel extends StatefulWidget {
 }
 
 class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
+  L10n get l10n => L10n.of(context.read<AppState>().settings);
+
   static const _sample = '夜色像一层薄薄的墨，慢慢洇开在窗棂上。';
 
   ReadAloudController? _own;
@@ -79,7 +81,6 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
   /// 导入一个模型包（zip / tar.bz2 / tar.gz / tar），成功后自动选中。
   Future<void> _importModel() async {
     final state = context.read<AppState>();
-    final l10n = L10n.of(state.settings);
     // 不做任何后缀/MIME 筛选：Android 的 file_selector 会把 extensions 映射成 MIME，
     // .tar.bz2 这类双后缀会被判成 application/octet-stream 而置灰不可选（实测只能选 .gz/.zip）。
     // 安全边界放在导入器：它按**内容魔数**识别 zip / tar.bz2 / tar.gz / tar，根本不看扩展名；

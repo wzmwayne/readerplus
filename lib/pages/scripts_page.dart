@@ -294,7 +294,7 @@ result('ok')
                   style: theme.textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 20),
-                FilledButton(onPressed: _openGate, child: Text(l.offGoEnable)),
+                FilledButton(onPressed: _openGate, child: Text(l.goEnable)),
               ],
             ),
           ),

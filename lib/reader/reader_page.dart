@@ -59,6 +59,8 @@ class ReaderPage extends StatefulWidget {
 
 class _ReaderPageState extends State<ReaderPage>
     with SingleTickerProviderStateMixin {
+  L10n get l => L10n.of(context.read<AppState>().settings);
+
   List<Chapter> _chapters = const [];
   String _content = '';
   int _chapterIndex = 0;
