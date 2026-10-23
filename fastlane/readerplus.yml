@@ -16,9 +16,10 @@ Builds:
     versionCode: 3600001
     commit: b4caaf51676f3d70768bba5ec3668c2b55b1cba8
     sudo:
+      - echo "deb https://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/bookworm.list
       - apt-get update
-      - apt-get install -y ninja-build openjdk-17-jdk-headless
-      - update-alternatives --auto java
+      - apt-get install -y -t bookworm openjdk-17-jdk-headless
+      - update-java-alternatives -s java-1.17.0-openjdk-amd64
     output: build/app/outputs/flutter-apk/app-release.apk
     srclibs:
       - flutter@3.47.0
@@ -29,11 +30,11 @@ Builds:
       - test
       - web
       - windows
-    prebuild: JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $$SDK$$/cmdline-tools/latest/bin/sdkmanager
-      'cmake;3.22.1'
-    build:
+    prebuild:
+      - $$SDK$$/cmdline-tools/latest/bin/sdkmanager 'cmake;3.22.1'
       - $$flutter$$/bin/flutter config --no-analytics
-      - $$flutter$$/bin/flutter pub get
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+    build:
       - $$flutter$$/bin/flutter build apk --release
     ndk: 28.2.13676358
 
