@@ -14,7 +14,7 @@ Repo: https://github.com/wzmwayne/readerplus.git
 Builds:
   - versionName: 1.1.4
     versionCode: 3600001
-    commit: b4caaf51676f3d70768bba5ec3668c2b55b1cba8
+    commit: 0bf8ec35c62387f35ed27f21f890aed53613abf1
     sudo:
       - echo "deb https://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/bookworm.list
       - apt-get update
