@@ -107,8 +107,9 @@ jobs:
             echo "基础依赖与 JDK 均已存在，跳过 apt"
           else
             echo "需要安装：$missing"
-            sudo apt-get install -y --no-install-recommends $missing \
-              || { sudo apt-get update && sudo apt-get install -y --no-install-recommends $missing; }
+            # 必须显式 update：索引缺失时直接 install 会长时间阻塞
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends $missing
           fi
           JDK_DIR="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
           echo "JAVA_HOME=$JDK_DIR" >> "$GITHUB_ENV"
