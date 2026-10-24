@@ -176,7 +176,7 @@ class _ReadAloudSettingsPanelState extends State<ReadAloudSettingsPanel> {
       if (mounted) setState(() {});
       return;
     }
-    await controller.start('$_sample');
+    await controller.start(_sample);
     if (mounted) setState(() {});
   }
 

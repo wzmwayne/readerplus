@@ -281,7 +281,7 @@ class SettingsPage extends StatelessWidget {
 }
 
 class _SectionTitle extends StatelessWidget {
-  _SectionTitle(this.text);
+  const _SectionTitle(this.text);
 
   final String text;
 

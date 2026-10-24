@@ -18,6 +18,7 @@ import '../state/app_state.dart';
 import '../services/tts/read_aloud_controller.dart';
 import '../widgets/read_aloud_panel.dart';
 import 'page_turn_offsets.dart';
+import 'reading_progress.dart';
 import 'tts_highlight.dart';
 import '../theme/app_theme.dart';
 import 'chapter_paginator.dart';
@@ -91,9 +92,8 @@ class _ReaderPageState extends State<ReaderPage>
   final PageController _slideController = PageController();
   final ScrollController _scrollController = ScrollController();
 
-  // 滚动模式：从 _scrollAnchor 章开始惰性渲染到全书末尾，
+  // 滚动模式渲染全部章节（惰性构建），跨章定位靠估算偏移 + ensureVisible 收敛。
   // 因此天然支持章节间连续滚动；用每章的 GlobalKey 跟踪当前位置。
-  int _scrollAnchor = 0;
   final Map<int, GlobalKey> _scrollKeys = {};
   final Map<String, GlobalKey> _paragraphKeys = {};
   final Map<int, List<String>> _paragraphCache = {};
@@ -106,6 +106,15 @@ class _ReaderPageState extends State<ReaderPage>
   /// 行号需要「行 ↔ 段落」估算换算，任一环估算成 0 就会永远停在段首；
   /// 段落序号是确定值，直接用 lastOffset 保存，打开时零误差还原。
   int? _pendingParagraph;
+
+  /// 滚动模式预渲染的章节窗口（闭区间）：目标章前后各 5 章。
+  /// 不再依赖"估算偏移"，而是把这 11 章一次构建出来，
+  /// 于是目标段落的坐标是实测值，直接用 ensureVisible 精确落位。
+  int _scrollWinStart = 0;
+  int _scrollWinEnd = 0;
+
+  /// 正在定位时显示异步加载指示器（而不是让用户看到白屏/卡顿）。
+  bool _scrollRestoring = false;
 
   ReadAloudController? _ttsInstance;
   bool _autoRead = false;
@@ -235,10 +244,9 @@ class _ReaderPageState extends State<ReaderPage>
         math.max(0, chapters.length - 1),
       );
       _pendingLine = widget.book.lastLine;
-      // 滚动模式用 lastOffset 存的是段落序号（翻页模式才用它存字符偏移）
-      _pendingParagraph = _rs.pageMode == PageMode.scroll &&
-              widget.book.lastOffset < 0
-          ? (-widget.book.lastOffset - 1)
+      // 滚动模式的落点编码为负数（翻页模式才用 lastOffset 存字符偏移）
+      _pendingParagraph = _rs.pageMode == PageMode.scroll
+          ? decodeScrollPosition(widget.book.lastOffset)
           : null;
       _loading = false;
       _paginateSignature = '';
@@ -358,13 +366,23 @@ class _ReaderPageState extends State<ReaderPage>
 
   /// 以 (chapter, line) 为锚点重建三章窗口。
   void _rebuildWindow(int anchorChapter, int anchorLine) {
+    // 目标页前后各预渲染 5 页：章节页数不足时继续向相邻章节扩展，
+    // 保证连续翻页（尤其跨章）不必临时排版，落点不会抖动。
+    const pad = 5;
+    var start = anchorChapter;
+    var before = 0;
+    while (start - 1 >= 0 && before < pad) {
+      start--;
+      before += _pagesOfChapter(start).length;
+    }
+    var end = anchorChapter;
+    var after = 0;
+    while (end + 1 < _chapters.length && after < pad) {
+      end++;
+      after += _pagesOfChapter(end).length;
+    }
     final flat = <_FlatPage>[];
-    for (final chapter in [
-      anchorChapter - 1,
-      anchorChapter,
-      anchorChapter + 1,
-    ]) {
-      if (chapter < 0 || chapter >= _chapters.length) continue;
+    for (var chapter = start; chapter <= end; chapter++) {
       final pages = _pagesOfChapter(chapter);
       for (var i = 0; i < pages.length; i++) {
         flat.add(_FlatPage(chapter: chapter, pageInChapter: i, page: pages[i]));
@@ -684,10 +702,8 @@ class _ReaderPageState extends State<ReaderPage>
         widget.book,
         _chapterIndex,
         line,
-        // 滚动模式：offset 存 -(段落序号+1)。
-        // 用负数与翻页模式的「字符偏移（>=0）」区分，
-        // 否则切换模式会把 5000 这类字符偏移误当成第 5000 段。
-        -(_scrollParagraphIndex + 1),
+        // 滚动模式：段落序号按约定编码为负数（见 reading_progress.dart）
+        encodeScrollPosition(_scrollParagraphIndex),
         progress,
       );
       return;
@@ -744,7 +760,6 @@ class _ReaderPageState extends State<ReaderPage>
       }
       setState(() {
         _chapterIndex += 1;
-        _scrollAnchor = _chapterIndex;
         _scrollParagraphIndex = 0;
         _pendingLine = null;
       });
@@ -1131,30 +1146,47 @@ class _ReaderPageState extends State<ReaderPage>
           ),
         );
       case PageMode.scroll:
-        // 必须包含**全部章节**：以前用 _scrollAnchor 当作列表起点，
-        // 会把当前章之前的章节整个排除，表现为「翻到第 2 章后切滚动，
-        // 再也看不到第 1 章」。ListView.builder 本身是懒构建的，
-        // 带上全部章节不会增加实际渲染开销。
+        // 预渲染窗口：目标章 ±5 章，用 SingleChildScrollView + Column 一次性构建，
+        // 这样窗口内所有段落都已布局 ⇒ 目标段落坐标是实测值，可精确 ensureVisible。
+        // 代价是进入时多排版几章，因此定位完成前显示加载指示器（见 _scrollRestoring）。
+        final winStart =
+            _scrollWinStart.clamp(0, math.max(0, _chapters.length - 1)).toInt();
+        final winEnd = _scrollWinEnd
+            .clamp(winStart, math.max(0, _chapters.length - 1))
+            .toInt();
+        final scrollBg = parseHexColor(rs.bgColor, fallback: Colors.white);
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScrollNotification,
-            child: _withSelection(
-              ListView.builder(
-                controller: _scrollController,
-                // 预构建更多内容：跨章定位时目标章节能更快被构建出来
-                cacheExtent: 4000,
-                padding: EdgeInsets.only(
-                  left: rs.paddingLeft,
-                  right: rs.paddingRight,
-                  top: rs.paddingTop,
-                  bottom: rs.paddingBottom,
+          child: Stack(
+            children: [
+              NotificationListener<ScrollNotification>(
+                onNotification: _onScrollNotification,
+                child: _withSelection(
+                  SingleChildScrollView(
+                    controller: _scrollController,
+                    padding: EdgeInsets.only(
+                      left: rs.paddingLeft,
+                      right: rs.paddingRight,
+                      top: rs.paddingTop,
+                      bottom: rs.paddingBottom,
+                    ),
+                    child: Column(
+                      children: [
+                        for (var i = winStart; i <= winEnd; i++)
+                          RepaintBoundary(child: _chapterSection(rs, i)),
+                      ],
+                    ),
+                  ),
                 ),
-                itemCount: _chapters.length,
-                itemBuilder: (context, index) =>
-                    RepaintBoundary(child: _chapterSection(rs, index)),
               ),
-            ),
+              if (_scrollRestoring)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: scrollBg,
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+            ],
           ),
         );
       case PageMode.cover:
@@ -1255,38 +1287,12 @@ class _ReaderPageState extends State<ReaderPage>
     return math.max(0, paragraphs.length - 1);
   }
 
-  /// 估算「第 chapter 章第 paragraph 段」在滚动列表中的像素偏移。
-  ///
-  /// ListView.builder 懒构建：目标章节尚未进入视口时它根本没有 build，
-  /// 拿不到 GlobalKey 的 context，单靠 ensureVisible 会静默失败
-  /// （表现为标题已更新到第 2 章、内容却停在第 1 章）。
-  /// 所以先用行数估一个偏移跳过去，让目标章节被构建，再修正残差。
-  double _estimateScrollOffset(ReaderSettings rs, int chapter, int paragraph) {
-    final usable = _usableWidth(rs);
-    if (usable <= 0) return 0;
-    final line = _scrollLineHeight;
-    var h = rs.paddingTop;
-    void addChapter(int c) {
-      final ps = _chapterParagraphs(c);
-      for (var i = 0; i < ps.length; i++) {
-        // 首段是章节标题，字号 1.3 倍
-        final lines = _estimatedLines(ps[i], rs, usable);
-        h += lines * line * (i == 0 ? 1.3 : 1.0);
-      }
-    }
-
-    for (var c = 0; c < chapter && c < _chapters.length; c++) {
-      addChapter(c);
-    }
-    final target = _chapterParagraphs(chapter);
-    for (var i = 0; i < paragraph && i < target.length; i++) {
-      final lines = _estimatedLines(target[i], rs, usable);
-      h += lines * line * (i == 0 ? 1.3 : 1.0);
-    }
-    return h;
-  }
-
   /// 把保存的进度定位到视口（进入滚动模式、跳章、打开书时）。
+  /// 把保存的进度定位到视口。
+  ///
+  /// 做法：先按「目标章 ±5 章」重建预渲染窗口（窗口内全部构建），
+  /// 于是目标段落的坐标由布局实测得到，直接 ensureVisible 精确落位，
+  /// 不再依赖任何行高/偏移估算。定位完成前显示加载指示器。
   void _scheduleScrollJump() {
     final rs = _rs;
     final chapter =
@@ -1300,35 +1306,63 @@ class _ReaderPageState extends State<ReaderPage>
               ? pendingParagraph.clamp(0, paragraphs.length - 1)
               : _paragraphOfLine(chapter, _pendingLine ?? 0, rs));
     _pendingLine = null;
+    final winStart = math.max(0, chapter - 5);
+    final winEnd = math.min(_chapters.length - 1, chapter + 5);
     setState(() {
-      _scrollAnchor = chapter;
       _scrollParagraphIndex = target;
       // 仅在还没有实测行号时兜底估算，避免把恢复出来的真实位置覆盖掉
       if (_scrollLine <= 0) {
         _scrollLine = _lineOfParagraph(chapter, target, rs);
       }
+      _scrollWinStart = winStart;
+      _scrollWinEnd = winEnd;
+      _scrollRestoring = true;
     });
+    _jumpToParagraph(chapter, target);
+  }
+
+  /// 把视口对齐到 (chapter, paragraph)；成功（或多次重试失败）后关闭加载态。
+  void _jumpToParagraph(int chapter, int paragraph) {
     var tries = 0;
-    void tryJump() {
-      if (!mounted || tries++ > 30) return;
-      final ctx = _paragraphKey(chapter, target)?.currentContext;
-      if (ctx != null) {
-        // 目标已经构建：精确对齐（修正估算残差）
-        Scrollable.ensureVisible(ctx, alignment: 0);
-        return;
-      }
-      // 目标还没构建：按估算偏移靠近，列表随之下探并构建目标章节
-      if (_scrollController.hasClients) {
-        final pos = _scrollController.position;
-        final est = _estimateScrollOffset(rs, chapter, target);
-        final max = pos.maxScrollExtent;
-        final dest = max.isFinite ? est.clamp(0.0, max) : est;
-        if ((dest - pos.pixels).abs() > 1) _scrollController.jumpTo(dest);
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) => tryJump());
+    void finish() {
+      if (mounted && _scrollRestoring) setState(() => _scrollRestoring = false);
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) => tryJump());
+    void attempt() {
+      if (!mounted) return;
+      final ctx = _paragraphKey(chapter, paragraph)?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx, alignment: 0).whenComplete(() {
+          // 等这一帧画完再撤掉指示器，避免闪一下空白
+          WidgetsBinding.instance.addPostFrameCallback((_) => finish());
+        });
+        return;
+      }
+      if (tries++ > 30) {
+        finish();
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) => attempt());
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => attempt());
+  }
+
+  /// 滚动接近预渲染窗口边缘时，把窗口平移回「当前章 ±5 章」并重新对齐，
+  /// 保证继续往后（或往前）读时总有已渲染的相邻章节。
+  void _extendScrollWindowIfNeeded(int chapter) {
+    if (_chapters.isEmpty) return;
+    if (chapter > _scrollWinStart + 1 && chapter < _scrollWinEnd - 1) return;
+    final winStart = math.max(0, chapter - 5);
+    final winEnd = math.min(_chapters.length - 1, chapter + 5);
+    if (winStart == _scrollWinStart && winEnd == _scrollWinEnd) return;
+    final anchor = _scrollParagraphIndex;
+    setState(() {
+      _scrollWinStart = winStart;
+      _scrollWinEnd = winEnd;
+      _scrollRestoring = true;
+    });
+    _jumpToParagraph(chapter, anchor);
   }
 
   /// 与滚动模式渲染一致的段落文本（首段标题不缩进，其余加缩进）。
@@ -1413,7 +1447,11 @@ class _ReaderPageState extends State<ReaderPage>
       _lastScrollSync = now;
       _syncScrollPosition();
     }
-    if (notification is ScrollEndNotification) _persistProgress();
+    if (notification is ScrollEndNotification) {
+      _persistProgress();
+      // 滚动停下后检查是否需要把预渲染窗口平移（避免读到窗口边缘就没内容）
+      _extendScrollWindowIfNeeded(_chapterIndex);
+    }
     return false;
   }
 
