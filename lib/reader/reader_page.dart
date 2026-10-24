@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'package:flutter/material.dart';
@@ -119,6 +120,10 @@ class _ReaderPageState extends State<ReaderPage>
   // ---- 调试用性能计数（仅 kDebugMode 启用，用于量化滚动期重建次数）----
   int _perfBuilds = 0;
   int _perfSections = 0;
+  int _perfFrames = 0;
+  int _perfJank = 0;
+  double _perfMaxBuild = 0;
+  double _perfMaxRaster = 0;
   Timer? _perfTimer;
 
   ReadAloudController? _ttsInstance;
@@ -214,14 +219,33 @@ class _ReaderPageState extends State<ReaderPage>
     });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     if (kDebugMode) {
+      // 帧耗时探针：区分「构建慢」还是「光栅慢」，是判断卡顿来源的关键证据
+      SchedulerBinding.instance.addTimingsCallback((timings) {
+        for (final t in timings) {
+          _perfFrames++;
+          final build = t.buildDuration.inMicroseconds / 1000.0;
+          final raster = t.rasterDuration.inMicroseconds / 1000.0;
+          if (build > _perfMaxBuild) _perfMaxBuild = build;
+          if (raster > _perfMaxRaster) _perfMaxRaster = raster;
+          if (t.totalSpan.inMicroseconds > 16000) _perfJank++;
+        }
+      });
       _perfTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         AppLog.info(
           'perf',
+          'fps=${(_perfFrames / 2).round()} '
+          'jank=$_perfJank '
+          'buildMax=${_perfMaxBuild.toStringAsFixed(1)}ms '
+          'rasterMax=${_perfMaxRaster.toStringAsFixed(1)}ms '
           'builds/s=${(_perfBuilds / 2).toStringAsFixed(1)} '
           'sections/s=${(_perfSections / 2).toStringAsFixed(1)}',
         );
         _perfBuilds = 0;
         _perfSections = 0;
+        _perfFrames = 0;
+        _perfJank = 0;
+        _perfMaxBuild = 0;
+        _perfMaxRaster = 0;
       });
     }
     _load();
@@ -265,6 +289,8 @@ class _ReaderPageState extends State<ReaderPage>
       _pendingParagraph = _rs.pageMode == PageMode.scroll
           ? decodeScrollPosition(widget.book.lastOffset)
           : null;
+      // 滚动模式：定位完成前保持加载态，避免先闪一下「第一章/错位位置」再跳过去
+      if (_rs.pageMode == PageMode.scroll) _scrollRestoring = true;
       _loading = false;
       _paginateSignature = '';
     });
@@ -1456,6 +1482,30 @@ class _ReaderPageState extends State<ReaderPage>
   GlobalKey? _paragraphKey(int chapterIndex, int paragraphIndex) =>
       _paragraphKeys['$chapterIndex:$paragraphIndex'];
 
+  /// 实测并缓存本章各段落的相对偏移；有任何一段还没构建则返回 null（下次再试）。
+  List<double>? _paragraphOffsets(int chapterIndex) {
+    final cached = _paraOffsets[chapterIndex];
+    if (cached != null) return cached;
+    final count = _chapterParagraphs(chapterIndex).length;
+    if (count == 0) return null;
+    final offsets = List<double>.filled(count + 1, 0);
+    var acc = 0.0;
+    for (var i = 0; i < count; i++) {
+      final ctx = _paragraphKey(chapterIndex, i)?.currentContext;
+      final box = ctx?.findRenderObject();
+      if (box is! RenderBox || !box.attached) return null;
+      offsets[i] = acc;
+      acc += box.size.height;
+    }
+    offsets[count] = acc;
+    _paraOffsets[chapterIndex] = offsets;
+    return offsets;
+  }
+
+  /// 每章各段落相对章节顶部的 y 偏移（实测一次，滚动期间复用）。
+  /// 用它把「找顶部段落」从 O(段落数) 的 findRenderObject 扫描降为二分查找。
+  final Map<int, List<double>> _paraOffsets = {};
+
   /// 章节区块缓存：ReaderPage 因任何原因重建时，只要影响渲染的输入没变，
   /// 就复用同一批 Widget 实例，避免把上千个 Text 重新构建一遍。
   List<Widget>? _sectionCache;
@@ -1481,6 +1531,8 @@ class _ReaderPageState extends State<ReaderPage>
     final cached = _sectionCache;
     if (cached != null && key == _sectionCacheKey) return cached;
     _sectionCacheKey = key;
+    // 排版参数变了，段落偏移表随之失效
+    _paraOffsets.clear();
     _sectionCache = [
       for (var i = start; i <= end; i++)
         RepaintBoundary(child: _chapterSection(rs, i)),
@@ -1567,27 +1619,31 @@ class _ReaderPageState extends State<ReaderPage>
     final paragraphs = _chapterParagraphs(bestChapter);
     if (paragraphs.isEmpty) return;
 
-    // 旧实现把「章节顶边距参考线的像素 / 行高」当成**段落号**用（单位混用），
-    // 只能碰巧在很短的距离内正确，实际保存的位置几乎没有意义。
-    // 现在改为：逐段实测渲染盒，找出第一个仍在视口内的段落（= 顶部段落），
-    // 再把该段之前所有段落的**实测高度**累加换算成行号，二者都是真实值。
+    // 用「本章段落偏移表」+ 二分查找定位顶部段落。
+    // 偏移表实测一次即可（滚动不改变段落高度），避免每 80ms 对上百个段落
+    // 做 findRenderObject + localToGlobal（那是滚动期最主要的慢路径之一）。
     const refTop = 24.0;
     final lineHeight = _scrollLineHeight;
     var topParagraph = 0;
     var linesBefore = 0;
-    var measured = 0.0;
-    for (var i = 0; i < paragraphs.length; i++) {
-      final ctx = _paragraphKey(bestChapter, i)?.currentContext;
-      if (ctx == null) break;
-      final box = ctx.findRenderObject();
-      if (box is! RenderBox || !box.attached) break;
-      final top = box.localToGlobal(Offset.zero).dy;
-      if (top > refTop) break; // 该段已完全进入视口，顶部段落是上一段
-      topParagraph = i;
-      linesBefore = lineHeight <= 0 ? i : (measured / lineHeight).round();
-      measured += box.size.height;
+    final offsets = _paragraphOffsets(bestChapter);
+    if (offsets != null) {
+      final y = refTop - bestTop; // 视口参考线落在本章内的偏移
+      var lo = 0;
+      var hi = offsets.length - 1;
+      while (lo < hi - 1) {
+        final mid = (lo + hi) ~/ 2;
+        if (offsets[mid] <= y) {
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+      topParagraph = lo.clamp(0, paragraphs.length - 1);
+      linesBefore = lineHeight <= 0
+          ? topParagraph
+          : (offsets[topParagraph] / lineHeight).round();
     }
-    if (lineHeight <= 0) linesBefore = topParagraph;
 
     if (bestChapter != _chapterIndex) {
       setState(() {
