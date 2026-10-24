@@ -230,6 +230,9 @@ class _ReaderPageState extends State<ReaderPage>
       _loading = false;
       _paginateSignature = '';
     });
+    // 滚动模式不会走分页流程，重进书时必须主动把进度定位到视口，
+    // 否则总是停在该章开头（表现为「阅读进度没恢复」）。
+    if (_rs.pageMode == PageMode.scroll) _scheduleScrollJump();
   }
 
   ReaderSettings get _rs => _app.readerSettings;
@@ -535,23 +538,25 @@ class _ReaderPageState extends State<ReaderPage>
       });
       return;
     }
-    final delta = x < width / 3
+    // 左右各 35%、中间 30%：原来各 1/3 时中间偏窄，想叫出菜单很容易误翻页；
+    // 同时点击翻页给一次触感反馈，手感更「实」。
+    final delta = x < width * 0.35
         ? -1
-        : (x > width * 2 / 3
+        : (x > width * 0.65
               ? 1
               : 0);
     if (delta == 0) {
-      // 中部：显示顶栏与底栏
       AppLog.info('reader', '点击中部：打开菜单');
       setState(() => _menuVisible = true);
     } else {
+      HapticFeedback.selectionClick();
       _turnBy(delta, animated: true);
     }
   }
 
   void _handleDoubleTapAt(double x, double width) {
     AppLog.info('reader', '双击：x=${x.toStringAsFixed(0)}');
-    final middle = x >= width / 3 && x <= width * 2 / 3;
+    final middle = x >= width * 0.35 && x <= width * 0.65;
     if (_selectionMode) {
       _exitSelectionMode();
       return;
@@ -1083,24 +1088,26 @@ class _ReaderPageState extends State<ReaderPage>
           ),
         );
       case PageMode.scroll:
-        final start =
-            _scrollAnchor.clamp(0, math.max(0, _chapters.length - 1)).toInt();
+        // 必须包含**全部章节**：以前用 _scrollAnchor 当作列表起点，
+        // 会把当前章之前的章节整个排除，表现为「翻到第 2 章后切滚动，
+        // 再也看不到第 1 章」。ListView.builder 本身是懒构建的，
+        // 带上全部章节不会增加实际渲染开销。
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           child: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
             child: _withSelection(
               ListView.builder(
-              controller: _scrollController,
-              padding: EdgeInsets.only(
-                left: rs.paddingLeft,
-                right: rs.paddingRight,
-                top: rs.paddingTop,
-                bottom: rs.paddingBottom,
-              ),
-              itemCount: math.max(0, _chapters.length - start),
-              itemBuilder: (context, index) =>
-                  RepaintBoundary(child: _chapterSection(rs, start + index)),
+                controller: _scrollController,
+                padding: EdgeInsets.only(
+                  left: rs.paddingLeft,
+                  right: rs.paddingRight,
+                  top: rs.paddingTop,
+                  bottom: rs.paddingBottom,
+                ),
+                itemCount: _chapters.length,
+                itemBuilder: (context, index) =>
+                    RepaintBoundary(child: _chapterSection(rs, index)),
               ),
             ),
           ),
@@ -1217,12 +1224,21 @@ class _ReaderPageState extends State<ReaderPage>
       _scrollAnchor = chapter;
       _scrollParagraphIndex = target;
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final targetContext = _paragraphKey(chapter, target)?.currentContext;
-      if (targetContext != null && mounted) {
-        Scrollable.ensureVisible(targetContext, alignment: 0);
+    // ListView.builder 懒构建：目标段落所在章节可能还没布局完成，
+    // 单帧回调里 currentContext 常为 null，导致跳转静默失败。
+    // 这里连续几帧重试，定位成功后立即停止。
+    var tries = 0;
+    void tryJump() {
+      if (!mounted || tries++ > 20) return;
+      final ctx = _paragraphKey(chapter, target)?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx, alignment: 0);
+        return;
       }
-    });
+      WidgetsBinding.instance.addPostFrameCallback((_) => tryJump());
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => tryJump());
   }
 
   /// 与滚动模式渲染一致的段落文本（首段标题不缩进，其余加缩进）。
@@ -2116,11 +2132,9 @@ class _ReaderPageState extends State<ReaderPage>
               });
               state.saveReaderSettings();
               if (mode == PageMode.scroll) {
-                _pendingLine = _lineOfParagraph(
-                  _chapterIndex,
-                  math.max(0, _scrollParagraphIndex),
-                  rs,
-                );
+                // 从翻页模式切过来时 _scrollParagraphIndex 是上一次滚动留下的旧值，
+                // 直接用它会把视口跳到错误位置；应以「当前页第一行」为准。
+                _pendingLine = _current?.firstLine ?? 0;
                 _scheduleScrollJump();
               }
             },
