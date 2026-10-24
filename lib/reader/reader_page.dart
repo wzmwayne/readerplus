@@ -1099,6 +1099,8 @@ class _ReaderPageState extends State<ReaderPage>
             child: _withSelection(
               ListView.builder(
                 controller: _scrollController,
+                // 预构建更多内容：跨章定位时目标章节能更快被构建出来
+                cacheExtent: 4000,
                 padding: EdgeInsets.only(
                   left: rs.paddingLeft,
                   right: rs.paddingRight,
@@ -1210,6 +1212,37 @@ class _ReaderPageState extends State<ReaderPage>
     return math.max(0, paragraphs.length - 1);
   }
 
+  /// 估算「第 chapter 章第 paragraph 段」在滚动列表中的像素偏移。
+  ///
+  /// ListView.builder 懒构建：目标章节尚未进入视口时它根本没有 build，
+  /// 拿不到 GlobalKey 的 context，单靠 ensureVisible 会静默失败
+  /// （表现为标题已更新到第 2 章、内容却停在第 1 章）。
+  /// 所以先用行数估一个偏移跳过去，让目标章节被构建，再修正残差。
+  double _estimateScrollOffset(ReaderSettings rs, int chapter, int paragraph) {
+    final usable = _usableWidth(rs);
+    if (usable <= 0) return 0;
+    final line = _scrollLineHeight;
+    var h = rs.paddingTop;
+    void addChapter(int c) {
+      final ps = _chapterParagraphs(c);
+      for (var i = 0; i < ps.length; i++) {
+        // 首段是章节标题，字号 1.3 倍
+        final lines = _estimatedLines(ps[i], rs, usable);
+        h += lines * line * (i == 0 ? 1.3 : 1.0);
+      }
+    }
+
+    for (var c = 0; c < chapter && c < _chapters.length; c++) {
+      addChapter(c);
+    }
+    final target = _chapterParagraphs(chapter);
+    for (var i = 0; i < paragraph && i < target.length; i++) {
+      final lines = _estimatedLines(target[i], rs, usable);
+      h += lines * line * (i == 0 ? 1.3 : 1.0);
+    }
+    return h;
+  }
+
   /// 把保存的进度定位到视口（进入滚动模式、跳章、打开书时）。
   void _scheduleScrollJump() {
     final rs = _rs;
@@ -1224,16 +1257,22 @@ class _ReaderPageState extends State<ReaderPage>
       _scrollAnchor = chapter;
       _scrollParagraphIndex = target;
     });
-    // ListView.builder 懒构建：目标段落所在章节可能还没布局完成，
-    // 单帧回调里 currentContext 常为 null，导致跳转静默失败。
-    // 这里连续几帧重试，定位成功后立即停止。
     var tries = 0;
     void tryJump() {
-      if (!mounted || tries++ > 20) return;
+      if (!mounted || tries++ > 30) return;
       final ctx = _paragraphKey(chapter, target)?.currentContext;
       if (ctx != null) {
+        // 目标已经构建：精确对齐（修正估算残差）
         Scrollable.ensureVisible(ctx, alignment: 0);
         return;
+      }
+      // 目标还没构建：按估算偏移靠近，列表随之下探并构建目标章节
+      if (_scrollController.hasClients) {
+        final pos = _scrollController.position;
+        final est = _estimateScrollOffset(rs, chapter, target);
+        final max = pos.maxScrollExtent;
+        final dest = max.isFinite ? est.clamp(0.0, max) : est;
+        if ((dest - pos.pixels).abs() > 1) _scrollController.jumpTo(dest);
       }
       WidgetsBinding.instance.addPostFrameCallback((_) => tryJump());
     }
