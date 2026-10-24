@@ -105,8 +105,8 @@ jobs:
             echo "基础依赖与 JDK 均已存在，跳过 apt"
           else
             echo "需要安装：$missing"
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends $missing
+            sudo apt-get install -y --no-install-recommends $missing \
+              || { sudo apt-get update && sudo apt-get install -y --no-install-recommends $missing; }
           fi
           JDK_DIR="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
           echo "JAVA_HOME=$JDK_DIR" >> "$GITHUB_ENV"
@@ -390,8 +390,10 @@ jobs:
             echo "桌面构建依赖均已存在，跳过 apt"
           else
             echo "需要安装：$missing"
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends $missing
+            # 镜像通常自带可用的 apt 索引，先直接装（省掉 apt-get update 的索引下载）；
+            # 索引过期或缺失时再更新重试一次。
+            sudo apt-get install -y --no-install-recommends $missing \
+              || { sudo apt-get update && sudo apt-get install -y --no-install-recommends $missing; }
           fi
       - uses: actions/checkout@v7.0.1
       - uses: subosito/flutter-action@v2.23.0
