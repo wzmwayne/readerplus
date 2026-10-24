@@ -99,6 +99,9 @@ class _ReaderPageState extends State<ReaderPage>
   final Map<int, List<String>> _paragraphCache = {};
   int _scrollParagraphIndex = 0;
 
+  /// 章内行号（由实测段落高度换算，用于持久化进度）
+  int _scrollLine = 0;
+
   ReadAloudController? _ttsInstance;
   bool _autoRead = false;
 
@@ -633,8 +636,7 @@ class _ReaderPageState extends State<ReaderPage>
         : (_current?.chapter ?? _chapterIndex);
     unawaited(_app.markChapterRead(widget.book, visibleChapter));
     if (_rs.pageMode == PageMode.scroll) {
-      final rs = _rs;
-      final line = _lineOfParagraph(_chapterIndex, _scrollParagraphIndex, rs);
+      final line = _scrollLine;
       final count = math.max(1, _chapterParagraphs(_chapterIndex).length);
       final progress = ((_chapterIndex + (_scrollParagraphIndex + 1) / count) /
               _chapters.length)
@@ -1256,6 +1258,8 @@ class _ReaderPageState extends State<ReaderPage>
     setState(() {
       _scrollAnchor = chapter;
       _scrollParagraphIndex = target;
+      // 目标段落对应的行号也一并写入，避免刚打开就落盘成 0 行
+      _scrollLine = _lineOfParagraph(chapter, target, rs);
     });
     var tries = 0;
     void tryJump() {
@@ -1384,21 +1388,39 @@ class _ReaderPageState extends State<ReaderPage>
     }
     if (bestChapter == null) return;
     final paragraphs = _chapterParagraphs(bestChapter);
+    if (paragraphs.isEmpty) return;
+
+    // 旧实现把「章节顶边距参考线的像素 / 行高」当成**段落号**用（单位混用），
+    // 只能碰巧在很短的距离内正确，实际保存的位置几乎没有意义。
+    // 现在改为：逐段实测渲染盒，找出第一个仍在视口内的段落（= 顶部段落），
+    // 再把该段之前所有段落的**实测高度**累加换算成行号，二者都是真实值。
+    const refTop = 24.0;
     final lineHeight = _scrollLineHeight;
-    final index = lineHeight <= 0
-        ? 0
-        : ((24 - bestTop) / lineHeight)
-              .floor()
-              .clamp(0, math.max(0, paragraphs.length - 1))
-              .toInt();
+    var topParagraph = 0;
+    var linesBefore = 0;
+    var measured = 0.0;
+    for (var i = 0; i < paragraphs.length; i++) {
+      final ctx = _paragraphKey(bestChapter, i)?.currentContext;
+      if (ctx == null) break;
+      final box = ctx.findRenderObject();
+      if (box is! RenderBox || !box.attached) break;
+      final top = box.localToGlobal(Offset.zero).dy;
+      if (top > refTop) break; // 该段已完全进入视口，顶部段落是上一段
+      topParagraph = i;
+      linesBefore = lineHeight <= 0 ? i : (measured / lineHeight).round();
+      measured += box.size.height;
+    }
+    if (lineHeight <= 0) linesBefore = topParagraph;
+
     if (bestChapter != _chapterIndex) {
       setState(() {
         _chapterIndex = bestChapter!;
-        _scrollParagraphIndex = index;
+        _scrollParagraphIndex = topParagraph;
+        _scrollLine = linesBefore;
       });
-    } else if (index != _scrollParagraphIndex) {
-      // 段落推进不触发重建（阅读时不显示行号）
-      _scrollParagraphIndex = index;
+    } else {
+      _scrollParagraphIndex = topParagraph;
+      _scrollLine = linesBefore;
     }
   }
 
@@ -1410,7 +1432,11 @@ class _ReaderPageState extends State<ReaderPage>
     final footerHeight = _tipBarHeight(rs, isHeader: false).floorToDouble();
     // 整页（含上下提示条）由**同一个**点按层处理：
     // 它在 SelectionArea 内层（比 SelectableRegion 更深 ⇒ 必胜），全页唯一。
+    // 每页必须自带不透明背景：页面是 Stack 里叠放的，没有背景时
+    // 覆盖动画中上层页会透出下层页的文字（看起来像"没盖住"）。
+    final pageBg = parseHexColor(rs.bgColor, fallback: Colors.white);
     return _withSelection(Container(
+      color: pageBg,
       padding: EdgeInsets.only(
         left: rs.paddingLeft,
         right: rs.paddingRight,
