@@ -116,6 +116,11 @@ class _ReaderPageState extends State<ReaderPage>
   /// 正在定位时显示异步加载指示器（而不是让用户看到白屏/卡顿）。
   bool _scrollRestoring = false;
 
+  // ---- 调试用性能计数（仅 kDebugMode 启用，用于量化滚动期重建次数）----
+  int _perfBuilds = 0;
+  int _perfSections = 0;
+  Timer? _perfTimer;
+
   ReadAloudController? _ttsInstance;
   bool _autoRead = false;
 
@@ -208,11 +213,23 @@ class _ReaderPageState extends State<ReaderPage>
       after?.call();
     });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (kDebugMode) {
+      _perfTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        AppLog.info(
+          'perf',
+          'builds/s=${(_perfBuilds / 2).toStringAsFixed(1)} '
+          'sections/s=${(_perfSections / 2).toStringAsFixed(1)}',
+        );
+        _perfBuilds = 0;
+        _perfSections = 0;
+      });
+    }
     _load();
   }
 
   @override
   void dispose() {
+    _perfTimer?.cancel();
     _settle.dispose();
     _drag.dispose();
     _slideController.dispose();
@@ -992,6 +1009,7 @@ class _ReaderPageState extends State<ReaderPage>
 
   @override
   Widget build(BuildContext context) {
+    if (kDebugMode) _perfBuilds++;
     final state = context.watch<AppState>();
     final rs = state.readerSettings;
     final bg = parseHexColor(rs.bgColor, fallback: Colors.white);
@@ -1171,6 +1189,10 @@ class _ReaderPageState extends State<ReaderPage>
                       bottom: rs.paddingBottom,
                     ),
                     child: Column(
+                      // 必须 stretch：外层 Column 默认 crossAxisAlignment.center，
+                      // 而每章 Column 的宽度只等于「该章最长一行」，段落较短的章节
+                      // 会因此变窄并被居中，表现为整章右移且各章偏移量还不一样。
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         for (var i = winStart; i <= winEnd; i++)
                           RepaintBoundary(child: _chapterSection(rs, i)),
@@ -1403,11 +1425,16 @@ class _ReaderPageState extends State<ReaderPage>
       _paragraphKeys['$chapterIndex:$paragraphIndex'];
 
   Widget _chapterSection(ReaderSettings rs, int chapterIndex) {
+    if (kDebugMode) _perfSections++;
     final key = _scrollKeys.putIfAbsent(chapterIndex, () => GlobalKey());
     final paragraphs = _chapterParagraphs(chapterIndex);
-    return Column(
-      key: key,
-      crossAxisAlignment: CrossAxisAlignment.start,
+    // 宽度显式撑满 + 交叉轴 start：无论外层父级如何对齐（Column 默认居中、
+    // 宽屏/横屏容器等），每章正文都从同一条左边线开始。
+    return SizedBox(
+      width: double.infinity,
+      child: Column(
+        key: key,
+        crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < paragraphs.length; i++)
           Builder(
@@ -1435,7 +1462,8 @@ class _ReaderPageState extends State<ReaderPage>
               );
             },
           ),
-      ],
+        ],
+      ),
     );
   }
 

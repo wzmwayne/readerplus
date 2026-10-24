@@ -53,7 +53,10 @@ class HighlightedText extends StatelessWidget {
       ...extraHighlights,
     ].where((e) => e.range[1] > e.range[0]).toList();
 
-    if (ranges.isEmpty) return Text(text, style: style);
+    // 正文一律左对齐：即使外层是 RTL 或居中对齐的容器也不被推走
+    if (ranges.isEmpty) {
+      return Text(text, style: style, textAlign: TextAlign.left);
+    }
 
     // 按所有区间边界切段，重叠段取「后加入」的样式（选中优先于朗读高亮）
     final boundaries = <int>{0, text.length};
@@ -82,6 +85,9 @@ class HighlightedText extends StatelessWidget {
         ),
       );
     }
-    return Text.rich(TextSpan(style: style, children: spans));
+    return Text.rich(
+      TextSpan(style: style, children: spans),
+      textAlign: TextAlign.left,
+    );
   }
 }
