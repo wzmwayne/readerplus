@@ -84,6 +84,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       code: ${{ steps.version.outputs.code }}
+      sha: ${{ steps.version.outputs.sha }}
+      display: ${{ steps.version.outputs.display }}
     steps:
       # 只算版本号：不装 Flutter、不做依赖缓存、不跑检查（本地已确认）
       - uses: actions/checkout@v7.0.1
