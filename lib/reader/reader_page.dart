@@ -99,8 +99,13 @@ class _ReaderPageState extends State<ReaderPage>
   final Map<int, List<String>> _paragraphCache = {};
   int _scrollParagraphIndex = 0;
 
-  /// 章内行号（由实测段落高度换算，用于持久化进度）
+  /// 章内行号（由实测段落高度换算，用于持久化进度 / 翻页模式换算）
   int _scrollLine = 0;
+
+  /// 滚动模式的精确落点：段落序号。
+  /// 行号需要「行 ↔ 段落」估算换算，任一环估算成 0 就会永远停在段首；
+  /// 段落序号是确定值，直接用 lastOffset 保存，打开时零误差还原。
+  int? _pendingParagraph;
 
   ReadAloudController? _ttsInstance;
   bool _autoRead = false;
@@ -230,6 +235,10 @@ class _ReaderPageState extends State<ReaderPage>
         math.max(0, chapters.length - 1),
       );
       _pendingLine = widget.book.lastLine;
+      // 滚动模式用 lastOffset 存的是段落序号（翻页模式才用它存字符偏移）
+      _pendingParagraph = _rs.pageMode == PageMode.scroll
+          ? (widget.book.lastOffset >= 0 ? widget.book.lastOffset : null)
+          : null;
       _loading = false;
       _paginateSignature = '';
     });
@@ -674,7 +683,7 @@ class _ReaderPageState extends State<ReaderPage>
         widget.book,
         _chapterIndex,
         line,
-        line,
+        _scrollParagraphIndex, // 滚动模式：offset 存段落序号（精确落点）
         progress,
       );
       return;
@@ -1279,15 +1288,21 @@ class _ReaderPageState extends State<ReaderPage>
     final chapter =
         _chapterIndex.clamp(0, math.max(0, _chapters.length - 1)).toInt();
     final paragraphs = _chapterParagraphs(chapter);
+    final pendingParagraph = _pendingParagraph;
+    _pendingParagraph = null;
     final target = paragraphs.isEmpty
         ? 0
-        : _paragraphOfLine(chapter, _pendingLine ?? 0, rs);
+        : (pendingParagraph != null
+              ? pendingParagraph.clamp(0, paragraphs.length - 1)
+              : _paragraphOfLine(chapter, _pendingLine ?? 0, rs));
     _pendingLine = null;
     setState(() {
       _scrollAnchor = chapter;
       _scrollParagraphIndex = target;
-      // 目标段落对应的行号也一并写入，避免刚打开就落盘成 0 行
-      _scrollLine = _lineOfParagraph(chapter, target, rs);
+      // 仅在还没有实测行号时兜底估算，避免把恢复出来的真实位置覆盖掉
+      if (_scrollLine <= 0) {
+        _scrollLine = _lineOfParagraph(chapter, target, rs);
+      }
     });
     var tries = 0;
     void tryJump() {
