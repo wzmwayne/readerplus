@@ -451,9 +451,32 @@ class _ReaderPageState extends State<ReaderPage>
         _paginateSignature = '';
       }
     });
-    _persistProgress();
+    _schedulePersist();
+    _prewarmNeighbours();
     // 朗读中手动翻页：让朗读内容跟上新页，避免高亮与朗读不符
     if (restartReading && _autoRead) unawaited(_startPageRead());
+  }
+
+  /// 把进度写入推迟到当前帧之后：松手那一帧同时做「排版 + 落盘」会明显掉帧。
+  void _schedulePersist() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_persistProgress());
+    });
+  }
+
+  /// 预排版相邻章节：把这些开销挪到空闲帧，
+  /// 否则跨章翻页的那一帧要同步排版整章，表现为松手后"顿一下"。
+  void _prewarmNeighbours() {
+    if (_rs.pageMode == PageMode.scroll || _chapters.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _rs.pageMode == PageMode.scroll) return;
+      final chapter = _current?.chapter ?? _chapterIndex;
+      for (final c in [chapter + 1, chapter - 1]) {
+        if (c >= 0 && c < _chapters.length && !_pageCache.containsKey(c)) {
+          _pagesOfChapter(c, rs: _rs, scaler: MediaQuery.textScalerOf(context));
+        }
+      }
+    });
   }
 
   /// 统一的翻页入口：点击与滑动都走这里，只有动画方式不同。
@@ -499,6 +522,11 @@ class _ReaderPageState extends State<ReaderPage>
       then?.call();
       return;
     }
+    // 时长按剩余距离自适应：只差一点时固定 200ms 会显得"发黏、顿一下"。
+    // 用剩余距离占屏宽的比例映射到 80–200ms。
+    final span = _viewport.width <= 0 ? 1.0 : _viewport.width;
+    final ratio = ((_dragTo - _dragFrom).abs() / span).clamp(0.0, 1.0);
+    _settle.duration = Duration(milliseconds: (80 + 120 * ratio).round());
     _settle.forward(from: 0);
   }
 
@@ -1083,7 +1111,7 @@ class _ReaderPageState extends State<ReaderPage>
                   _paginateSignature = '';
                 }
               });
-              _persistProgress();
+              _schedulePersist();
             },
             itemBuilder: (context, index) =>
                 RepaintBoundary(child: _pageFrame(rs, index)),
