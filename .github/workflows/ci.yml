@@ -396,10 +396,10 @@ jobs:
             echo "桌面构建依赖均已存在，跳过 apt"
           else
             echo "需要安装：$missing"
-            # 镜像通常自带可用的 apt 索引，先直接装（省掉 apt-get update 的索引下载）；
-            # 索引过期或缺失时再更新重试一次。
-            sudo apt-get install -y --no-install-recommends $missing \
-              || { sudo apt-get update && sudo apt-get install -y --no-install-recommends $missing; }
+            # 必须显式 update：runner 镜像的 apt 索引可能缺失/过期，
+            # 直接 install 会长时间等待索引刷新（实测卡住 20 分钟），因此先更新再装。
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends $missing
           fi
       - uses: actions/checkout@v7.0.1
       - uses: subosito/flutter-action@v2.23.0
