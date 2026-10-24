@@ -35,9 +35,23 @@ else
   echo "版本名 ${beijing}，versionCode ${code}（来自 pubspec.yaml）"
 fi
 
+# 提交号（短）：用于版本串后缀与预发布 tag
+if [ -n "${GITHUB_SHA:-}" ]; then
+  short_sha="${GITHUB_SHA:0:7}"
+else
+  short_sha="$(git rev-parse --short=7 HEAD 2>/dev/null || echo 0000000)"
+fi
+
+# 显示版本串：语义版本 + 构建号 + 提交号，例如 1.1.4+3600001.g09653ab
+# 只影响 versionName 的字符串，versionCode 仍取 code，数值不变。
+display="${beijing}+${code}.g${short_sha}"
+echo "显示版本 ${display}（versionCode 仍为 ${code}）"
+
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   {
     echo "version=${beijing}"
     echo "code=${code}"
+    echo "sha=${short_sha}"
+    echo "display=${display}"
   } >> "$GITHUB_OUTPUT"
 fi
