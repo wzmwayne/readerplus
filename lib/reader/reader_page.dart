@@ -1010,8 +1010,10 @@ class _ReaderPageState extends State<ReaderPage>
   @override
   Widget build(BuildContext context) {
     if (kDebugMode) _perfBuilds++;
-    final state = context.watch<AppState>();
-    final rs = state.readerSettings;
+    // 只订阅阅读设置：AppState 每次 saveProgress 都会 notifyListeners，
+    // 用 watch 会让整页（含全部章节）重建；select 在同一 settings 实例下不触发重建。
+    final state = context.read<AppState>();
+    final rs = context.select<AppState, ReaderSettings>((s) => s.readerSettings);
     final bg = parseHexColor(rs.bgColor, fallback: Colors.white);
 
     if (_loading) {
@@ -1193,10 +1195,7 @@ class _ReaderPageState extends State<ReaderPage>
                       // 而每章 Column 的宽度只等于「该章最长一行」，段落较短的章节
                       // 会因此变窄并被居中，表现为整章右移且各章偏移量还不一样。
                       crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (var i = winStart; i <= winEnd; i++)
-                          RepaintBoundary(child: _chapterSection(rs, i)),
-                      ],
+                      children: _scrollSections(rs, winStart, winEnd),
                     ),
                   ),
                 ),
@@ -1328,8 +1327,9 @@ class _ReaderPageState extends State<ReaderPage>
               ? pendingParagraph.clamp(0, paragraphs.length - 1)
               : _paragraphOfLine(chapter, _pendingLine ?? 0, rs));
     _pendingLine = null;
-    final winStart = math.max(0, chapter - 5);
-    final winEnd = math.min(_chapters.length - 1, chapter + 5);
+    // 首帧只构建「目标章 ±1」：先让画面出来，剩余章节随后分帧补
+    final winStart = math.max(0, chapter - 1);
+    final winEnd = math.min(_chapters.length - 1, chapter + 1);
     setState(() {
       _scrollParagraphIndex = target;
       // 仅在还没有实测行号时兜底估算，避免把恢复出来的真实位置覆盖掉
@@ -1341,6 +1341,42 @@ class _ReaderPageState extends State<ReaderPage>
       _scrollRestoring = true;
     });
     _jumpToParagraph(chapter, target);
+    _fillScrollWindow(chapter);
+  }
+
+  /// 分帧把预渲染窗口扩到「center ±5」：每帧只加一章，
+  /// 避免一次性构建 11 章把 UI 线程占满（那会造成明显的首屏卡顿）。
+  void _fillScrollWindow(int center) {
+    final targetStart = math.max(0, center - 5);
+    final targetEnd = math.min(_chapters.length - 1, center + 5);
+    void step() {
+      if (!mounted) return;
+      if (_scrollWinEnd < targetEnd) {
+        // 往后追加不影响当前滚动位置，最省事
+        setState(() => _scrollWinEnd = math.min(targetEnd, _scrollWinEnd + 1));
+      } else if (_scrollWinStart > targetStart) {
+        final before = _scrollController.hasClients
+            ? _scrollController.position.pixels
+            : 0.0;
+        setState(() => _scrollWinStart = math.max(targetStart, _scrollWinStart - 1));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scrollController.hasClients) return;
+          final ctx = _scrollKeys[_scrollWinStart]?.currentContext;
+          final box = ctx?.findRenderObject();
+          if (box is RenderBox && box.attached) {
+            // 前面插入一章会把内容整体下移，按其实测高度补偿，视觉上保持不动
+            final pos = _scrollController.position;
+            final dest = (before + box.size.height).clamp(0.0, pos.maxScrollExtent);
+            _scrollController.jumpTo(dest.toDouble());
+          }
+        });
+      } else {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) => step());
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => step());
   }
 
   /// 把视口对齐到 (chapter, paragraph)；成功（或多次重试失败）后关闭加载态。
@@ -1374,17 +1410,13 @@ class _ReaderPageState extends State<ReaderPage>
   /// 保证继续往后（或往前）读时总有已渲染的相邻章节。
   void _extendScrollWindowIfNeeded(int chapter) {
     if (_chapters.isEmpty) return;
-    if (chapter > _scrollWinStart + 1 && chapter < _scrollWinEnd - 1) return;
-    final winStart = math.max(0, chapter - 5);
-    final winEnd = math.min(_chapters.length - 1, chapter + 5);
-    if (winStart == _scrollWinStart && winEnd == _scrollWinEnd) return;
-    final anchor = _scrollParagraphIndex;
-    setState(() {
-      _scrollWinStart = winStart;
-      _scrollWinEnd = winEnd;
-      _scrollRestoring = true;
-    });
-    _jumpToParagraph(chapter, anchor);
+    // 离窗口边缘还有 2 章以上就不动；否则分帧补到「当前章 ±5」
+    if (chapter > _scrollWinStart + 2 && chapter < _scrollWinEnd - 2) return;
+    final targetStart = math.max(0, chapter - 5);
+    final targetEnd = math.min(_chapters.length - 1, chapter + 5);
+    if (targetStart == _scrollWinStart && targetEnd == _scrollWinEnd) return;
+    // 已到边缘：只需补缺的那一侧，_fillScrollWindow 会逐帧完成
+    _fillScrollWindow(chapter);
   }
 
   /// 与滚动模式渲染一致的段落文本（首段标题不缩进，其余加缩进）。
@@ -1423,6 +1455,38 @@ class _ReaderPageState extends State<ReaderPage>
 
   GlobalKey? _paragraphKey(int chapterIndex, int paragraphIndex) =>
       _paragraphKeys['$chapterIndex:$paragraphIndex'];
+
+  /// 章节区块缓存：ReaderPage 因任何原因重建时，只要影响渲染的输入没变，
+  /// 就复用同一批 Widget 实例，避免把上千个 Text 重新构建一遍。
+  List<Widget>? _sectionCache;
+  String _sectionCacheKey = '';
+
+  String _sectionSignature(ReaderSettings rs) => [
+    _scrollWinStart,
+    _scrollWinEnd,
+    rs.textSize,
+    rs.lineSpacing,
+    rs.letterSpacing,
+    rs.paragraphSpacing,
+    rs.paragraphIndent,
+    rs.textColor,
+    rs.fontFamily,
+    rs.bold,
+    _ttsActiveSegment?.start ?? -1,
+    _selectionMode,
+  ].join('|');
+
+  List<Widget> _scrollSections(ReaderSettings rs, int start, int end) {
+    final key = _sectionSignature(rs);
+    final cached = _sectionCache;
+    if (cached != null && key == _sectionCacheKey) return cached;
+    _sectionCacheKey = key;
+    _sectionCache = [
+      for (var i = start; i <= end; i++)
+        RepaintBoundary(child: _chapterSection(rs, i)),
+    ];
+    return _sectionCache!;
+  }
 
   Widget _chapterSection(ReaderSettings rs, int chapterIndex) {
     if (kDebugMode) _perfSections++;
