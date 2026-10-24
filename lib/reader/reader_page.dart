@@ -236,8 +236,9 @@ class _ReaderPageState extends State<ReaderPage>
       );
       _pendingLine = widget.book.lastLine;
       // 滚动模式用 lastOffset 存的是段落序号（翻页模式才用它存字符偏移）
-      _pendingParagraph = _rs.pageMode == PageMode.scroll
-          ? (widget.book.lastOffset >= 0 ? widget.book.lastOffset : null)
+      _pendingParagraph = _rs.pageMode == PageMode.scroll &&
+              widget.book.lastOffset < 0
+          ? (-widget.book.lastOffset - 1)
           : null;
       _loading = false;
       _paginateSignature = '';
@@ -683,7 +684,10 @@ class _ReaderPageState extends State<ReaderPage>
         widget.book,
         _chapterIndex,
         line,
-        _scrollParagraphIndex, // 滚动模式：offset 存段落序号（精确落点）
+        // 滚动模式：offset 存 -(段落序号+1)。
+        // 用负数与翻页模式的「字符偏移（>=0）」区分，
+        // 否则切换模式会把 5000 这类字符偏移误当成第 5000 段。
+        -(_scrollParagraphIndex + 1),
         progress,
       );
       return;
