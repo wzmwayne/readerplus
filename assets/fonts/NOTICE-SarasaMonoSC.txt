@@ -1,0 +1,28 @@
+第三方字体：Sarasa Mono SC（等距更纱黑体 SC）Regular
+========================================================================
+
+本目录文件
+----------
+  SarasaMonoSC-Regular.ttf   从 Sarasa-SuperTTC.ttc 抽取的单字重 TTF
+  OFL-1.1.txt                SIL Open Font License 1.1 全文
+
+来源
+----
+  上游：https://github.com/be5invis/Sarasa-Gothic
+  版本：v1.0.43（Sarasa-SuperTTC-1.0.43.7z 内的 Sarasa-SuperTTC.ttc）
+  处理：fontTools 以 fontNumber=205 抽取「Sarasa Mono SC / Regular」单一 face，
+        未修改字形数据，字体内嵌的 name / 版权字段原样保留。
+
+版权
+----
+  Copyright (c) 2015-2025, Renzhi Li (aka. Belleve Invis, belleve@typeof.net)
+  字形部分源自 Source Han Sans / Noto Sans CJK（Adobe / Google，OFL-1.1）
+  以及 M+ FONTS（M+ LICENSE，与 OFL 兼容）。
+
+许可
+----
+  SIL Open Font License 1.1（全文见同目录 OFL-1.1.txt）。
+  - 允许随应用分发与嵌入，不得单独出售字体；
+  - 若修改字形，必须改名（不得使用保留字体名 Sarasa / Sarasa Mono SC）。
+  本应用未修改字形，仅从 TTC 抽取单 face，故保留原字体名。
+  本应用整体仍为 GPL-3.0-or-later；字体作为独立作品聚合分发，未与源码合并。

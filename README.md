@@ -140,13 +140,9 @@ packaging/icon/              图标生成脚本（极简黑白书本）
 
 ## 第三方资源与许可
 
-- **文泉驿正黑（等宽正黑，WenQuanYi Zen Hei Mono）** `assets/fonts/WenQuanYiZenHeiMono.ttf`
-  - 上游：<http://wenq.org/>（文泉驿项目），版本 0.9.45
-  - 版权：Copyright 2007-2009 Qianqian Fang and The WenQuanYi Project Board of Trustees；
-    1998-2004 Koanughi Un；1999-2004 Tsong-Min Wu, Tsong-Huey Wu；2005 Tsong-Min Wu,
-    Tsong-Huey Wu and Edward G.J. Lee；2004 Firefly；2002-2008 M+ FONTS PROJECT
-  - 许可：**GPL-2 with Font embedding exception** 以及 M+ FONTS License
-  - 完整声明见 `assets/fonts/LICENSE-WenQuanYiZenHei.txt`、`assets/fonts/NOTICE-WenQuanYiZenHei.txt`，
-    GPL-2 正文见 `assets/fonts/COPYING.GPL-2`
-  - 该字体作为**独立作品**随应用聚合分发（未与应用源码合并），字体文件自身的许可不变；
-    本应用整体仍为 GPL-3.0-or-later
+- **Sarasa Mono SC（等距更纱黑体 SC）Regular** `assets/fonts/SarasaMonoSC-Regular.ttf`
+  - 上游：<https://github.com/be5invis/Sarasa-Gothic>，版本 v1.0.43
+  - 版权：Copyright (c) 2015-2025, Renzhi Li (aka. Belleve Invis)
+  - 许可：**SIL Open Font License 1.1**（全文 `assets/fonts/OFL-1.1.txt`）
+  - 来源与抽取说明：`assets/fonts/NOTICE-SarasaMonoSC.txt`
+  - 字体作为独立作品聚合分发；本应用整体为 GPL-3.0-or-later

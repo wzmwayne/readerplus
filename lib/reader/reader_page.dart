@@ -318,7 +318,7 @@ class _ReaderPageState extends State<ReaderPage>
     color: parseHexColor(rs.textColor, fallback: Colors.black),
     // TextPainter 直绘不会继承 Theme 的 CJK 回退链，必须显式声明；
     // 默认用内嵌的文泉驿等宽正黑，缺字时按回退链找系统字体。
-    fontFamily: rs.fontFamily.isEmpty ? 'WenQuanYiZenHeiMono' : rs.fontFamily,
+    fontFamily: rs.fontFamily.isEmpty ? 'SarasaMonoSC' : rs.fontFamily,
     fontFamilyFallback: kCjkFontFallback,
   );
 

@@ -67,12 +67,20 @@ class AppTheme {
       splashFactory: InkRipple.splashFactory,
     );
     return base.copyWith(
-      textTheme: base.textTheme.apply(fontFamilyFallback: kCjkFontFallback),
-      primaryTextTheme:
-          base.primaryTextTheme.apply(fontFamilyFallback: kCjkFontFallback),
+      textTheme: base.textTheme.apply(
+        fontFamily: kAppFontFamily,
+        fontFamilyFallback: kCjkFontFallback,
+      ),
+      primaryTextTheme: base.primaryTextTheme.apply(
+        fontFamily: kAppFontFamily,
+        fontFamilyFallback: kCjkFontFallback,
+      ),
     );
   }
 }
+
+/// 应用全局字体族（内嵌 Sarasa Mono SC，SIL OFL 1.1）。
+const String kAppFontFamily = 'SarasaMonoSC';
 
 /// 中文字形回退链。
 /// Android 由系统自带中文字体覆盖，Linux 桌面依赖系统已安装的 CJK 字体，

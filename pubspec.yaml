@@ -38,9 +38,9 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   fonts:
-    # 内嵌中文字体：文泉驿等宽正黑（GPL-2 + 字体嵌入例外，见 assets/fonts/NOTICE-*）
-    - family: WenQuanYiZenHeiMono
+    # 内嵌中文字体：Sarasa Mono SC Regular（SIL OFL 1.1，见 assets/fonts/OFL-1.1.txt）
+    - family: SarasaMonoSC
       fonts:
-        - asset: assets/fonts/WenQuanYiZenHeiMono.ttf
+        - asset: assets/fonts/SarasaMonoSC-Regular.ttf
   assets:
     - docs/插件开发指南.md
