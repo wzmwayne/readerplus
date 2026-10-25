@@ -951,23 +951,53 @@ class _ReaderPageState extends State<ReaderPage>
   /// widget 实例，高亮不会随句子推进而刷新。
   /// 分页画布渲染：仅当画布切片与分页结果的首段一致时才启用，
   /// 否则返回 null 回退到 widget 渲染（防止两套测量出现行级错位）。
+  /// 同一页只记录一次渲染路径，避免刷屏
+  void _logRenderPath(String key, String message) {
+    if (_lastRenderPathLog == key) return;
+    _lastRenderPathLog = key;
+    AppLog.info('reader', message);
+  }
+
   Widget? _canvasPage(ReaderSettings rs, _FlatPage? flat) {
     if (flat == null) return null;
     final entries = _paragraphRanges(flat);
-    if (entries.isEmpty) return null;
+    if (entries.isEmpty) {
+      _logRenderPath('fb:${flat.chapter}:${flat.pageInChapter}:empty',
+          '分页渲染：回退 widget（无段落）ch=${flat.chapter} page=${flat.pageInChapter}');
+      return null;
+    }
     final layout = _layoutFor(flat.chapter, rs);
     final starts = layout.lineStarts();
-    if (starts.isEmpty || flat.lastLine >= starts.length) return null;
+    if (starts.isEmpty || flat.lastLine >= starts.length) {
+      _logRenderPath('fb:${flat.chapter}:${flat.pageInChapter}:range',
+          '分页渲染：回退 widget（行号越界）ch=${flat.chapter} page=${flat.pageInChapter} '+
+          'firstLine=${flat.firstLine} lastLine=${flat.lastLine} lines=${starts.length}');
+      return null;
+    }
     final top = starts[flat.firstLine.clamp(0, starts.length - 1)];
     final end = flat.lastLine + 1 < starts.length
         ? starts[flat.lastLine + 1]
         : layout.height;
-    if (end <= top) return null;
+    if (end <= top) {
+      _logRenderPath('fb:${flat.chapter}:${flat.pageInChapter}:slice',
+          '分页渲染：回退 widget（切片为空）ch=${flat.chapter} page=${flat.pageInChapter}');
+      return null;
+    }
     // 校验：画布上该位置的首段必须与分页结果的首段一致
     final pIndex = layout.paragraphAt(top);
     final canvasText = layout.boxes[pIndex].text.trim();
     final pageText = entries.first.paragraph.text.trim();
-    if (canvasText != pageText) return null;
+    if (canvasText != pageText) {
+      _logRenderPath('fb:${flat.chapter}:${flat.pageInChapter}:mismatch',
+          '分页渲染：回退 widget（首段不一致）ch=${flat.chapter} page=${flat.pageInChapter} '+
+          'canvas="${canvasText.length > 12 ? canvasText.substring(0, 12) : canvasText}" '+
+          'page="${pageText.length > 12 ? pageText.substring(0, 12) : pageText}"');
+      return null;
+    }
+    _logRenderPath('cv:${flat.chapter}:${flat.pageInChapter}',
+        '分页渲染：画布 ch=${flat.chapter} page=${flat.pageInChapter} '+
+        'top=${top.toStringAsFixed(1)} h=${(end - top).toStringAsFixed(1)} '+
+        'firstLine=${flat.firstLine} lastLine=${flat.lastLine}');
     final segment = _ttsActiveSegment;
     final hlP = segment == null
         ? -1
@@ -1594,6 +1624,9 @@ class _ReaderPageState extends State<ReaderPage>
   int _anchorP = 0; // 扩选锚点
   int _anchorO = 0;
   int _dragHandle = 0; // 0=无 1=起点 2=终点
+
+  /// 分页渲染路径日志去重（同一页只记一次）
+  String _lastRenderPathLog = '';
 
   Color get _selectionHighlightColor =>
       parseHexColor(_rs.textColor, fallback: Colors.black).withValues(alpha: 0.22);
