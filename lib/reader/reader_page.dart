@@ -949,7 +949,52 @@ class _ReaderPageState extends State<ReaderPage>
   ///
   /// 段落必须在 builder 内部构建：否则 ListenableBuilder 重建时会复用同一批
   /// widget 实例，高亮不会随句子推进而刷新。
+  /// 分页画布渲染：仅当画布切片与分页结果的首段一致时才启用，
+  /// 否则返回 null 回退到 widget 渲染（防止两套测量出现行级错位）。
+  Widget? _canvasPage(ReaderSettings rs, _FlatPage? flat) {
+    if (flat == null) return null;
+    final entries = _paragraphRanges(flat);
+    if (entries.isEmpty) return null;
+    final layout = _layoutFor(flat.chapter, rs);
+    final starts = layout.lineStarts();
+    if (starts.isEmpty || flat.lastLine >= starts.length) return null;
+    final top = starts[flat.firstLine.clamp(0, starts.length - 1)];
+    final end = flat.lastLine + 1 < starts.length
+        ? starts[flat.lastLine + 1]
+        : layout.height;
+    if (end <= top) return null;
+    // 校验：画布上该位置的首段必须与分页结果的首段一致
+    final pIndex = layout.paragraphAt(top);
+    final canvasText = layout.boxes[pIndex].text.trim();
+    final pageText = entries.first.paragraph.text.trim();
+    if (canvasText != pageText) return null;
+    final segment = _ttsActiveSegment;
+    final hlP = segment == null
+        ? -1
+        : _paragraphOfSegment(flat.chapter, segment.start);
+    final hlRange = (segment == null || hlP < 0)
+        ? null
+        : _scrollReadRange(
+            flat.chapter,
+            hlP,
+            hlP == 0 ? 0 : rs.paragraphIndent.length,
+          );
+    return CustomPaint(
+      painter: PageCanvasPainter(
+        layout: layout,
+        pageTop: top,
+        pageHeight: end - top,
+        highlightParagraph: hlP,
+        highlightRange: hlRange,
+        highlightColor: readAloudHighlightStyle(_textStyle(rs)).backgroundColor,
+      ),
+      size: Size.infinite,
+    );
+  }
+
   Widget _paragraphArea(ReaderSettings rs, _FlatPage? flat) {
+    final canvas = _canvasPage(rs, flat);
+    if (canvas != null) return canvas;
     final style = _textStyle(rs);
     Widget buildParagraphs() {
       final entries = flat == null
