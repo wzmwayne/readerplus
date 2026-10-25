@@ -102,6 +102,50 @@ class ChapterTextLayout {
     return pages;
   }
 
+  /// 一页：章内起始 y、页高、覆盖的行区间与首段序号。
+  List<({double top, double height, int startLine, int endLine, int firstParagraph})>
+  pages(double pageHeight) {
+    final ys = <double>[];
+    final hs = <double>[];
+    for (final box in boxes) {
+      final metrics = box.painter.computeLineMetrics();
+      var y = box.top;
+      for (final m in metrics) {
+        ys.add(y);
+        hs.add(m.height);
+        y += m.height;
+      }
+    }
+    if (ys.isEmpty) {
+      return [(top: 0, height: pageHeight, startLine: 0, endLine: 0, firstParagraph: 0)];
+    }
+    final limit = pageHeight <= 1 ? 1.0 : pageHeight;
+    final out = <({double top, double height, int startLine, int endLine, int firstParagraph})>[];
+    var start = 0;
+    var pageTop = ys.first;
+    for (var i = 0; i < ys.length; i++) {
+      if (ys[i] - pageTop + hs[i] > limit) {
+        out.add((
+          top: pageTop,
+          height: ys[i] - pageTop,
+          startLine: start,
+          endLine: i - 1,
+          firstParagraph: paragraphAt(pageTop),
+        ));
+        pageTop = ys[i];
+        start = i;
+      }
+    }
+    out.add((
+      top: pageTop,
+      height: height - pageTop,
+      startLine: start,
+      endLine: ys.length - 1,
+      firstParagraph: paragraphAt(pageTop),
+    ));
+    return out;
+  }
+
   int paragraphAt(double y) {
     if (boxes.isEmpty) return 0;
     var lo = 0;
@@ -295,6 +339,74 @@ class ChapterPainter extends CustomPainter {
       old.selO1 != selO1 ||
       old.selP2 != selP2 ||
       old.selO2 != selO2 ||
+      !_sameRange(old.highlightRange, highlightRange);
+
+  static bool _sameRange(List<int>? a, List<int>? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+/// 分页模式的一页：把整章画布按规定页高裁剪并上移。
+/// 覆盖 / 滑动 / 无动画三种翻页只是位移不同，绘制完全一致。
+class PageCanvasPainter extends CustomPainter {
+  PageCanvasPainter({
+    required this.layout,
+    required this.pageTop,
+    required this.pageHeight,
+    this.highlightParagraph = -1,
+    this.highlightRange,
+    this.highlightColor,
+  });
+
+  final ChapterTextLayout layout;
+  final double pageTop;
+  final double pageHeight;
+  final int highlightParagraph;
+  final List<int>? highlightRange;
+  final Color? highlightColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(0, 0, size.width, pageHeight));
+    canvas.translate(0, -pageTop);
+    for (final box in layout.boxes) {
+      box.paint(canvas);
+    }
+    final range = highlightRange;
+    final hl = highlightColor;
+    if (range != null &&
+        hl != null &&
+        highlightParagraph >= 0 &&
+        highlightParagraph < layout.boxes.length &&
+        range.length >= 2 &&
+        range[1] > range[0]) {
+      final paint = Paint()..color = hl;
+      for (final r in layout.selectionRects(
+        highlightParagraph,
+        range[0],
+        range[1],
+      )) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r, const Radius.circular(2)),
+          paint,
+        );
+      }
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant PageCanvasPainter old) =>
+      old.layout != layout ||
+      old.pageTop != pageTop ||
+      old.pageHeight != pageHeight ||
+      old.highlightParagraph != highlightParagraph ||
+      old.highlightColor != highlightColor ||
       !_sameRange(old.highlightRange, highlightRange);
 
   static bool _sameRange(List<int>? a, List<int>? b) {
