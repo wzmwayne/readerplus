@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,6 +8,7 @@ import '../app_info.dart';
 import '../l10n/l10n.dart';
 import '../models/app_settings.dart';
 import '../services/app_log.dart';
+import '../services/font_store.dart';
 import '../state/app_state.dart';
 import 'developer_page.dart';
 import 'script_consent_page.dart';
@@ -123,6 +127,26 @@ class SettingsPage extends StatelessWidget {
                 subtitle: Text(_langLabel(l, state.settings.langMode)),
                 onTap: () => _pickLanguage(context, state),
               );
+            },
+          ),
+          _SectionTitle('字体'),
+          ListTile(
+            leading: const Icon(Icons.font_download_outlined),
+            title: const Text('导入字体包'),
+            subtitle: Text(
+              state.readerSettings.fontFamily.isEmpty
+                  ? '当前使用系统字体'
+                  : '当前字体：${state.readerSettings.fontFamily}',
+            ),
+            onTap: () => _importFontPackage(context, state),
+          ),
+          ListTile(
+            leading: const Icon(Icons.font_download_off_outlined),
+            title: const Text('恢复系统字体'),
+            enabled: state.readerSettings.fontFamily.isNotEmpty,
+            onTap: () {
+              state.readerSettings.fontFamily = '';
+              state.saveReaderSettings();
             },
           ),
           _SectionTitle('脚本'),
@@ -335,4 +359,29 @@ class _VersionTileState extends State<_VersionTile> {
     subtitle: Text(appVersionLabel),
     onTap: _onTap,
   );
+}
+
+
+/// 导入 TTF/OTF 字体包并立即启用（APK 不内置字体，默认系统字体）。
+Future<void> _importFontPackage(BuildContext context, AppState state) async {
+  const group = XTypeGroup(
+    label: '字体文件',
+    extensions: ['ttf', 'otf'],
+  );
+  final file = await openFile(acceptedTypeGroups: const [group]);
+  if (file == null) return;
+  try {
+    final imported = await FontStore().import(File(file.path));
+    state.readerSettings.fontFamily = imported.family;
+    state.saveReaderSettings();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已导入并启用：' + imported.label)),
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('导入失败：' + e.toString())),
+    );
+  }
 }

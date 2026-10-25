@@ -8,6 +8,7 @@ import 'l10n/l10n.dart';
 import 'pages/crash_page.dart';
 import 'pages/home_shell.dart';
 import 'services/app_log.dart';
+import 'services/font_store.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
 
@@ -24,6 +25,8 @@ Future<void> main() async {
   // 表现为开屏时一闪而过的「默认主题」。
   final state = AppState();
   await state.init();
+  // 注册用户导入的字体包（不内置字体，默认系统字体）
+  await FontStore().registerAll();
   if (kDebugMode) {
     debugPrint('[startup] init=${sw.elapsedMilliseconds}ms');
   }

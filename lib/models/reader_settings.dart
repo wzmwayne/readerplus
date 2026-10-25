@@ -243,7 +243,8 @@ class ReaderSettings {
     this.bgColor = '#C0EDC6',
     this.textColor = '#0B0B0B',
     this.nightMode = false,
-    this.fontFamily = 'SarasaMonoSC',
+    // 默认使用系统字体；用户可在设置里导入并使用自定义字体包
+    this.fontFamily = '',
     this.pageMode = PageMode.slide,
     this.keepScreenOn = true,
     this.brightness = 0,
