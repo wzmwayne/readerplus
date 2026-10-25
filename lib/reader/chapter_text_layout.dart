@@ -112,6 +112,25 @@ class ChapterTextLayout {
     ];
   }
 
+  /// 跨段选区的两个手柄（章内坐标）：起点在首行基线、终点在末行基线下方。
+  List<Offset> spanHandles(int p1, int o1, int p2, int o2) {
+    if (boxes.isEmpty) return const [];
+    final a = boxes[p1.clamp(0, boxes.length - 1)];
+    final b = boxes[p2.clamp(0, boxes.length - 1)];
+    final startCaret = a.painter.getOffsetForCaret(
+      TextPosition(offset: o1.clamp(0, a.text.length)),
+      Rect.zero,
+    );
+    final endCaret = b.painter.getOffsetForCaret(
+      TextPosition(offset: o2.clamp(0, b.text.length)),
+      Rect.zero,
+    );
+    return [
+      Offset(startCaret.dx, a.top + startCaret.dy),
+      Offset(endCaret.dx, b.top + endCaret.dy + b.painter.preferredLineHeight),
+    ];
+  }
+
   /// 选区末端的两个游标位置（段内坐标）。
   List<Offset> selectionHandles(int paragraph, int start, int end) {
     if (boxes.isEmpty) return const [];
@@ -137,9 +156,10 @@ class ChapterPainter extends CustomPainter {
     this.highlightParagraph = -1,
     this.highlightRange,
     this.highlightColor,
-    this.selectedParagraph = -1,
-    this.selectedStart = 0,
-    this.selectedEnd = 0,
+    this.selP1 = -1,
+    this.selO1 = 0,
+    this.selP2 = -1,
+    this.selO2 = 0,
     this.selectionColor,
     this.handleColor,
   });
@@ -148,9 +168,10 @@ class ChapterPainter extends CustomPainter {
   final int highlightParagraph;
   final List<int>? highlightRange;
   final Color? highlightColor;
-  final int selectedParagraph;
-  final int selectedStart;
-  final int selectedEnd;
+  final int selP1;
+  final int selO1;
+  final int selP2;
+  final int selO2;
   final Color? selectionColor;
   final Color? handleColor;
 
@@ -188,34 +209,36 @@ class ChapterPainter extends CustomPainter {
       }
     }
     final selColor = selectionColor;
-    if (selColor != null && selectedParagraph >= 0 && selectedEnd > selectedStart) {
-      final rects = layout.selectionRects(selectedParagraph, selectedStart, selectedEnd);
+    if (selColor != null && selP1 >= 0 && selP2 >= selP1) {
       final p = Paint()..color = selColor;
-      for (final r in rects) {
-        canvas.drawRRect(RRect.fromRectAndRadius(r, const Radius.circular(2)), p);
-      }
-      final handleColorValue = handleColor;
-      if (handleColorValue != null) {
-        final hp = Paint()..color = handleColorValue;
-        final hs = layout.selectionHandles(
-          selectedParagraph,
-          selectedStart,
-          selectedEnd,
-        );
-        // 起点手柄竖线向上，终点手柄竖线向下（原来两个都朝上 ⇒ 看起来是反的）
-        for (var i = 0; i < hs.length; i++) {
-          final h = hs[i];
-          canvas.drawCircle(h, 5, hp);
-          canvas.drawRect(
-            Rect.fromLTWH(
-              h.dx - 1.2,
-              i == 0 ? h.dy - 16 : h.dy,
-              2.4,
-              16,
-            ),
-            hp,
+      // 跨段：逐段画矩形，首段从 O1 起、末段到 O2 止
+      for (var i = selP1; i <= selP2 && i < layout.boxes.length; i++) {
+        final len = layout.boxes[i].text.length;
+        final from = i == selP1 ? selO1.clamp(0, len) : 0;
+        final to = i == selP2 ? selO2.clamp(0, len) : len;
+        for (final r in layout.selectionRects(i, from, to)) {
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(r, const Radius.circular(2)),
+            p,
           );
         }
+      }
+      final handleColorValue = handleColor;
+      final hs = layout.spanHandles(selP1, selO1, selP2, selO2);
+      if (handleColorValue != null && hs.length == 2) {
+        final hp = Paint()..color = handleColorValue;
+        // 起点手柄竖线向上
+        canvas.drawCircle(hs[0], 5, hp);
+        canvas.drawRect(
+          Rect.fromLTWH(hs[0].dx - 1.2, hs[0].dy - 16, 2.4, 16),
+          hp,
+        );
+        // 终点手柄竖线向下
+        canvas.drawCircle(hs[1], 5, hp);
+        canvas.drawRect(
+          Rect.fromLTWH(hs[1].dx - 1.2, hs[1].dy, 2.4, 16),
+          hp,
+        );
       }
     }
   }
@@ -225,9 +248,10 @@ class ChapterPainter extends CustomPainter {
       old.layout != layout ||
       old.highlightParagraph != highlightParagraph ||
       old.highlightColor != highlightColor ||
-      old.selectedParagraph != selectedParagraph ||
-      old.selectedStart != selectedStart ||
-      old.selectedEnd != selectedEnd ||
+      old.selP1 != selP1 ||
+      old.selO1 != selO1 ||
+      old.selP2 != selP2 ||
+      old.selO2 != selO2 ||
       !_sameRange(old.highlightRange, highlightRange);
 
   static bool _sameRange(List<int>? a, List<int>? b) {

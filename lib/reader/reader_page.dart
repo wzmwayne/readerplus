@@ -1240,7 +1240,7 @@ class _ReaderPageState extends State<ReaderPage>
                   ),
                 ),
               ),
-              if (_selChapter >= 0 && _selEnd > _selStart)
+              if (_selChapter >= 0 && _selP1 >= 0 && _isSelectionNonEmpty)
                 Positioned(
                   left: 0,
                   right: 0,
@@ -1503,9 +1503,6 @@ class _ReaderPageState extends State<ReaderPage>
     );
   }
 
-  GlobalKey? _paragraphKey(int chapterIndex, int paragraphIndex) =>
-      _paragraphKeys['$chapterIndex:$paragraphIndex'];
-
 
   /// 每章各段落相对章节顶部的 y 偏移（实测一次，滚动期间复用）。
   /// 用它把「找顶部段落」从 O(段落数) 的 findRenderObject 扫描降为二分查找。
@@ -1530,9 +1527,10 @@ class _ReaderPageState extends State<ReaderPage>
     _selectionMode,
     // 选区变化必须让区块重建，否则画布会继续用旧的 selectedParagraph
     _selChapter,
-    _selParagraph,
-    _selStart,
-    _selEnd,
+    _selP1,
+    _selO1,
+    _selP2,
+    _selO2,
   ].join('|');
 
 // ---------------- 画布渲染（Legado 式） ----------------
@@ -1545,10 +1543,12 @@ class _ReaderPageState extends State<ReaderPage>
 
   /// 选区状态：章 / 段 / 段内起止 / 拖拽锚点。
   int _selChapter = -1;
-  int _selParagraph = -1;
-  int _selStart = 0;
-  int _selEnd = 0;
-  int _selAnchor = 0;
+  int _selP1 = -1; // 起点段落
+  int _selO1 = 0; // 起点段内偏移
+  int _selP2 = -1; // 终点段落
+  int _selO2 = 0; // 终点段内偏移
+  int _anchorP = 0; // 扩选锚点
+  int _anchorO = 0;
   int _dragHandle = 0; // 0=无 1=起点 2=终点
 
   Color get _selectionHighlightColor =>
@@ -1621,9 +1621,10 @@ class _ReaderPageState extends State<ReaderPage>
             highlightRange: hlRange,
             highlightColor:
                 readAloudHighlightStyle(_textStyle(rs)).backgroundColor,
-            selectedParagraph: selected ? _selParagraph : -1,
-            selectedStart: _selStart,
-            selectedEnd: _selEnd,
+            selP1: selected ? _selP1 : -1,
+            selO1: _selO1,
+            selP2: selected ? _selP2 : -1,
+            selO2: _selO2,
             selectionColor: _selectionHighlightColor,
             handleColor: _handleColor,
           ),
@@ -1707,16 +1708,20 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   /// 手柄命中：返回 1=起点 2=终点 0=未命中（命中半径 28dp，比绘制圆点大得多）。
+  /// 选区是否非空（跨段也能判断）。
+  bool get _isSelectionNonEmpty {
+    if (_selChapter < 0 || _selP1 < 0 || _selP2 < _selP1) return false;
+    if (_selP1 == _selP2) return _selO2 > _selO1;
+    return _selO2 > 0 || _selP2 > _selP1;
+  }
+
+  /// 手柄命中：1=起点 2=终点 0=未命中（命中半径 28dp）。
   int _handleHit(Offset global) {
-    if (_selChapter < 0 || _selParagraph < 0) return 0;
+    if (!_isSelectionNonEmpty) return 0;
     final point = _contentPoint(global);
     if (point == null) return 0;
     final layout = _layoutFor(_selChapter, _rs);
-    final handles = layout.selectionHandles(
-      _selParagraph,
-      _selStart,
-      _selEnd,
-    );
+    final handles = layout.spanHandles(_selP1, _selO1, _selP2, _selO2);
     final top = _chapterTop(_selChapter);
     for (var i = 0; i < handles.length; i++) {
       final h = Offset(handles[i].dx, top + handles[i].dy);
@@ -1727,7 +1732,6 @@ class _ReaderPageState extends State<ReaderPage>
 
   /// 长按选词（对应 Legado 的 onLongPress + BreakIterator）。
   void _startTextSelection(Offset global) {
-    // 先判手柄：按在手柄上就是「拖手柄调整选区」，而不是重新选词
     final handle = _handleHit(global);
     if (handle != 0) {
       setState(() => _dragHandle = handle);
@@ -1743,65 +1747,86 @@ class _ReaderPageState extends State<ReaderPage>
     final word = layout.wordAt(hit.paragraph, pos);
     setState(() {
       _selChapter = hit.chapter;
-      _selParagraph = hit.paragraph;
-      _selStart = word.start;
-      _selEnd = word.end;
-      _selAnchor = word.start;
+      _selP1 = hit.paragraph;
+      _selO1 = word.start;
+      _selP2 = hit.paragraph;
+      _selO2 = word.end;
+      _anchorP = hit.paragraph;
+      _anchorO = word.start;
       _menuVisible = false;
     });
   }
 
-  /// 拖动扩展选区（对应 Legado 的 selectText）。
+  /// 拖动扩展选区（跨段：比较段落与段内偏移的元组）。
   void _extendTextSelection(Offset global) {
     if (_selChapter < 0) return;
     final hit = _hitTestText(global);
     if (hit == null || hit.chapter != _selChapter) return;
     final layout = _layoutFor(_selChapter, _rs);
-    final pos = layout.boxes[_selParagraph].painter.getPositionForOffset(
+    final pos = layout.boxes[hit.paragraph].painter.getPositionForOffset(
       hit.local,
     );
     setState(() {
       if (_dragHandle == 1) {
-        // 拖起点手柄：只移动起点
-        _selStart = pos.offset;
+        _selP1 = hit.paragraph;
+        _selO1 = pos.offset;
       } else if (_dragHandle == 2) {
-        // 拖终点手柄：只移动终点
-        _selEnd = pos.offset;
-      } else if (pos.offset >= _selAnchor) {
-        _selStart = _selAnchor;
-        _selEnd = pos.offset;
+        _selP2 = hit.paragraph;
+        _selO2 = pos.offset;
       } else {
-        _selStart = pos.offset;
-        _selEnd = _selAnchor;
+        final after = hit.paragraph > _anchorP ||
+            (hit.paragraph == _anchorP && pos.offset >= _anchorO);
+        if (after) {
+          _selP1 = _anchorP;
+          _selO1 = _anchorO;
+          _selP2 = hit.paragraph;
+          _selO2 = pos.offset;
+        } else {
+          _selP1 = hit.paragraph;
+          _selO1 = pos.offset;
+          _selP2 = _anchorP;
+          _selO2 = _anchorO;
+        }
       }
-      // 起止颠倒时交换，保证 start <= end
-      if (_selStart > _selEnd) {
-        final t = _selStart;
-        _selStart = _selEnd;
-        _selEnd = t;
+      // 起止颠倒时交换（跨段比较）
+      final swapped = _selP1 > _selP2 ||
+          (_selP1 == _selP2 && _selO1 > _selO2);
+      if (swapped) {
+        final tp = _selP1;
+        final to = _selO1;
+        _selP1 = _selP2;
+        _selO1 = _selO2;
+        _selP2 = tp;
+        _selO2 = to;
       }
     });
   }
 
   String get _canvasSelectedText {
-    if (_selChapter < 0 || _selEnd <= _selStart) return '';
+    if (!_isSelectionNonEmpty) return '';
     final layout = _layoutFor(_selChapter, _rs);
-    if (_selParagraph >= layout.boxes.length) return '';
-    final text = layout.boxes[_selParagraph].text;
-    return text.substring(
-      _selStart.clamp(0, text.length),
-      _selEnd.clamp(0, text.length),
-    );
+    final buffer = StringBuffer();
+    for (var i = _selP1; i <= _selP2 && i < layout.boxes.length; i++) {
+      final text = layout.boxes[i].text;
+      final from = i == _selP1 ? _selO1.clamp(0, text.length) : 0;
+      final to = i == _selP2 ? _selO2.clamp(0, text.length) : text.length;
+      if (to <= from) continue;
+      if (buffer.isNotEmpty) buffer.write('\n');
+      buffer.write(text.substring(from, to));
+    }
+    return buffer.toString();
   }
 
   void _clearCanvasSelection() {
     if (_selChapter < 0) return;
     setState(() {
       _selChapter = -1;
-      _selParagraph = -1;
-      _selStart = 0;
-      _selEnd = 0;
-      _selAnchor = 0;
+      _selP1 = -1;
+      _selO1 = 0;
+      _selP2 = -1;
+      _selO2 = 0;
+      _anchorP = 0;
+      _anchorO = 0;
       _dragHandle = 0;
     });
   }
