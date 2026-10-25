@@ -80,6 +80,54 @@ class ChapterTextLayout {
     final i = paragraph.clamp(0, boxes.length - 1);
     return boxes[i].top;
   }
+
+  /// 命中测试：本章内 y 偏移 → 段落序号 + 段内字符位置。
+  /// 对应 Legado 的 curPage.longPress(x, y)。
+  ({int paragraph, TextPosition position})? hitTest(double x, double y) {
+    if (boxes.isEmpty) return null;
+    final p = paragraphAt(y);
+    final box = boxes[p];
+    final position = box.painter.getPositionForOffset(Offset(x, y - box.top));
+    return (paragraph: p, position: position);
+  }
+
+  /// 词边界选择：对应 Legado 用 BreakIterator 选词。
+  ({int start, int end}) wordAt(int paragraph, TextPosition position) {
+    final box = boxes[paragraph.clamp(0, boxes.length - 1)];
+    final word = box.painter.getWordBoundary(position);
+    return (start: word.start, end: word.end);
+  }
+
+  /// 选区矩形（段内坐标系，含段落顶部偏移），用于绘制高亮。
+  List<Rect> selectionRects(int paragraph, int start, int end) {
+    if (boxes.isEmpty) return const [];
+    final p = paragraph.clamp(0, boxes.length - 1);
+    final box = boxes[p];
+    final list = box.painter.getBoxesForSelection(
+      TextSelection(baseOffset: start, extentOffset: end),
+    );
+    return [
+      for (final b in list)
+        Rect.fromLTWH(b.left, box.top + b.top, b.right - b.left, b.bottom - b.top),
+    ];
+  }
+
+  /// 选区末端的两个游标位置（段内坐标）。
+  List<Offset> selectionHandles(int paragraph, int start, int end) {
+    if (boxes.isEmpty) return const [];
+    final p = paragraph.clamp(0, boxes.length - 1);
+    final box = boxes[p];
+    final out = <Offset>[];
+    for (final off in [start, end]) {
+      final caret = box.painter.getOffsetForCaret(
+        TextPosition(offset: off),
+        Rect.zero,
+      );
+      final h = box.painter.preferredLineHeight;
+      out.add(Offset(caret.dx, box.top + caret.dy + (off >= end ? h : 0)));
+    }
+    return out;
+  }
 }
 
 /// 一章的绘制器：画正文，并按需绘制朗读高亮。
@@ -89,12 +137,22 @@ class ChapterPainter extends CustomPainter {
     this.highlightParagraph = -1,
     this.highlightRange,
     this.highlightColor,
+    this.selectedParagraph = -1,
+    this.selectedStart = 0,
+    this.selectedEnd = 0,
+    this.selectionColor,
+    this.handleColor,
   });
 
   final ChapterTextLayout layout;
   final int highlightParagraph;
   final List<int>? highlightRange;
   final Color? highlightColor;
+  final int selectedParagraph;
+  final int selectedStart;
+  final int selectedEnd;
+  final Color? selectionColor;
+  final Color? handleColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -129,6 +187,22 @@ class ChapterPainter extends CustomPainter {
         );
       }
     }
+    final selColor = selectionColor;
+    if (selColor != null && selectedParagraph >= 0 && selectedEnd > selectedStart) {
+      final rects = layout.selectionRects(selectedParagraph, selectedStart, selectedEnd);
+      final p = Paint()..color = selColor;
+      for (final r in rects) {
+        canvas.drawRRect(RRect.fromRectAndRadius(r, const Radius.circular(2)), p);
+      }
+      final handleColorValue = handleColor;
+      if (handleColorValue != null) {
+        final hp = Paint()..color = handleColorValue;
+        for (final h in layout.selectionHandles(selectedParagraph, selectedStart, selectedEnd)) {
+          canvas.drawCircle(h, 5, hp);
+          canvas.drawRect(Rect.fromLTWH(h.dx - 1.2, h.dy - 16, 2.4, 16), hp);
+        }
+      }
+    }
   }
 
   @override
@@ -136,6 +210,9 @@ class ChapterPainter extends CustomPainter {
       old.layout != layout ||
       old.highlightParagraph != highlightParagraph ||
       old.highlightColor != highlightColor ||
+      old.selectedParagraph != selectedParagraph ||
+      old.selectedStart != selectedStart ||
+      old.selectedEnd != selectedEnd ||
       !_sameRange(old.highlightRange, highlightRange);
 
   static bool _sameRange(List<int>? a, List<int>? b) {
