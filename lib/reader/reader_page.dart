@@ -1219,6 +1219,8 @@ class _ReaderPageState extends State<ReaderPage>
                     onLongPressStart: (d) => _startTextSelection(d.globalPosition),
                     onLongPressMoveUpdate: (d) =>
                         _extendTextSelection(d.globalPosition),
+                    onLongPressEnd: (_) =>
+                        setState(() => _dragHandle = 0),
                     child: SingleChildScrollView(
                     controller: _scrollController,
                     padding: EdgeInsets.only(
@@ -1547,6 +1549,7 @@ class _ReaderPageState extends State<ReaderPage>
   int _selStart = 0;
   int _selEnd = 0;
   int _selAnchor = 0;
+  int _dragHandle = 0; // 0=无 1=起点 2=终点
 
   Color get _selectionHighlightColor =>
       parseHexColor(_rs.textColor, fallback: Colors.black).withValues(alpha: 0.22);
@@ -1690,8 +1693,47 @@ class _ReaderPageState extends State<ReaderPage>
     return null;
   }
 
+  /// 屏幕坐标 → 内容坐标（已扣除内边距）。
+  Offset? _contentPoint(Offset global) {
+    final box = _scrollAreaKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !_scrollController.hasClients) {
+      return null;
+    }
+    final local = box.globalToLocal(global);
+    return Offset(
+      local.dx - _rs.paddingLeft,
+      local.dy + _scrollController.position.pixels - _rs.paddingTop,
+    );
+  }
+
+  /// 手柄命中：返回 1=起点 2=终点 0=未命中（命中半径 28dp，比绘制圆点大得多）。
+  int _handleHit(Offset global) {
+    if (_selChapter < 0 || _selParagraph < 0) return 0;
+    final point = _contentPoint(global);
+    if (point == null) return 0;
+    final layout = _layoutFor(_selChapter, _rs);
+    final handles = layout.selectionHandles(
+      _selParagraph,
+      _selStart,
+      _selEnd,
+    );
+    final top = _chapterTop(_selChapter);
+    for (var i = 0; i < handles.length; i++) {
+      final h = Offset(handles[i].dx, top + handles[i].dy);
+      if ((h - point).distance <= 28) return i + 1;
+    }
+    return 0;
+  }
+
   /// 长按选词（对应 Legado 的 onLongPress + BreakIterator）。
   void _startTextSelection(Offset global) {
+    // 先判手柄：按在手柄上就是「拖手柄调整选区」，而不是重新选词
+    final handle = _handleHit(global);
+    if (handle != 0) {
+      setState(() => _dragHandle = handle);
+      return;
+    }
+    setState(() => _dragHandle = 0);
     final hit = _hitTestText(global);
     if (hit == null) return;
     final layout = _layoutFor(hit.chapter, _rs);
@@ -1719,12 +1761,24 @@ class _ReaderPageState extends State<ReaderPage>
       hit.local,
     );
     setState(() {
-      if (pos.offset >= _selAnchor) {
+      if (_dragHandle == 1) {
+        // 拖起点手柄：只移动起点
+        _selStart = pos.offset;
+      } else if (_dragHandle == 2) {
+        // 拖终点手柄：只移动终点
+        _selEnd = pos.offset;
+      } else if (pos.offset >= _selAnchor) {
         _selStart = _selAnchor;
         _selEnd = pos.offset;
       } else {
         _selStart = pos.offset;
         _selEnd = _selAnchor;
+      }
+      // 起止颠倒时交换，保证 start <= end
+      if (_selStart > _selEnd) {
+        final t = _selStart;
+        _selStart = _selEnd;
+        _selEnd = t;
       }
     });
   }
@@ -1748,6 +1802,7 @@ class _ReaderPageState extends State<ReaderPage>
       _selStart = 0;
       _selEnd = 0;
       _selAnchor = 0;
+      _dragHandle = 0;
     });
   }
 

@@ -197,9 +197,24 @@ class ChapterPainter extends CustomPainter {
       final handleColorValue = handleColor;
       if (handleColorValue != null) {
         final hp = Paint()..color = handleColorValue;
-        for (final h in layout.selectionHandles(selectedParagraph, selectedStart, selectedEnd)) {
+        final hs = layout.selectionHandles(
+          selectedParagraph,
+          selectedStart,
+          selectedEnd,
+        );
+        // 起点手柄竖线向上，终点手柄竖线向下（原来两个都朝上 ⇒ 看起来是反的）
+        for (var i = 0; i < hs.length; i++) {
+          final h = hs[i];
           canvas.drawCircle(h, 5, hp);
-          canvas.drawRect(Rect.fromLTWH(h.dx - 1.2, h.dy - 16, 2.4, 16), hp);
+          canvas.drawRect(
+            Rect.fromLTWH(
+              h.dx - 1.2,
+              i == 0 ? h.dy - 16 : h.dy,
+              2.4,
+              16,
+            ),
+            hp,
+          );
         }
       }
     }
