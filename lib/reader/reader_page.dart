@@ -23,6 +23,7 @@ import 'reading_progress.dart';
 import 'tts_highlight.dart';
 import '../theme/app_theme.dart';
 import 'chapter_paginator.dart';
+import 'chapter_text_layout.dart';
 
 /// 扁平化后的一页：属于哪一章、章内第几页、页内容。
 class _FlatPage {
@@ -187,11 +188,11 @@ class _ReaderPageState extends State<ReaderPage>
       }
       offset += paragraphs[i].length + 1;
     }
-    final context = _paragraphKey(_chapterIndex, index)?.currentContext;
-    if (context == null) return;
-    Scrollable.ensureVisible(
-      context,
-      alignment: 0.12,
+    if (!_scrollController.hasClients) return;
+    final layout = _layoutFor(_chapterIndex, _rs);
+    final target = _chapterTop(_chapterIndex) + layout.offsetOf(index);
+    _scrollController.animateTo(
+      target.clamp(0.0, _scrollController.position.maxScrollExtent).toDouble(),
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
     );
@@ -316,7 +317,10 @@ class _ReaderPageState extends State<ReaderPage>
     letterSpacing: rs.letterSpacing,
     fontWeight: rs.bold ? FontWeight.w600 : FontWeight.normal,
     color: parseHexColor(rs.textColor, fallback: Colors.black),
-    fontFamily: rs.fontFamily.isEmpty ? null : rs.fontFamily,
+    // TextPainter 直绘不会继承 Theme 的 CJK 回退链，必须显式声明；
+    // 默认用内嵌的文泉驿等宽正黑，缺字时按回退链找系统字体。
+    fontFamily: rs.fontFamily.isEmpty ? 'WenQuanYiZenHeiMono' : rs.fontFamily,
+    fontFamilyFallback: kCjkFontFallback,
   );
 
   bool _hasHeader(ReaderSettings rs) =>
@@ -1208,7 +1212,14 @@ class _ReaderPageState extends State<ReaderPage>
               NotificationListener<ScrollNotification>(
                 onNotification: _onScrollNotification,
                 child: _withSelection(
-                  SingleChildScrollView(
+                  GestureDetector(
+                    key: _scrollAreaKey,
+                    // 只接管长按：单击与纵向滑动仍归滚动视图，
+                    // 因此不会影响原有的点按翻页 / 呼出菜单。
+                    onLongPressStart: (d) => _startTextSelection(d.globalPosition),
+                    onLongPressMoveUpdate: (d) =>
+                        _extendTextSelection(d.globalPosition),
+                    child: SingleChildScrollView(
                     controller: _scrollController,
                     padding: EdgeInsets.only(
                       left: rs.paddingLeft,
@@ -1224,8 +1235,16 @@ class _ReaderPageState extends State<ReaderPage>
                       children: _scrollSections(rs, winStart, winEnd),
                     ),
                   ),
+                  ),
                 ),
               ),
+              if (_selChapter >= 0 && _selEnd > _selStart)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _selectionActionBar(rs),
+                ),
               if (_scrollRestoring)
                 Positioned.fill(
                   child: ColoredBox(
@@ -1414,12 +1433,13 @@ class _ReaderPageState extends State<ReaderPage>
 
     void attempt() {
       if (!mounted) return;
-      final ctx = _paragraphKey(chapter, paragraph)?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(ctx, alignment: 0).whenComplete(() {
-          // 等这一帧画完再撤掉指示器，避免闪一下空白
-          WidgetsBinding.instance.addPostFrameCallback((_) => finish());
-        });
+      if (_scrollController.hasClients) {
+        final layout = _layoutFor(chapter, _rs);
+        final target = _chapterTop(chapter) + layout.offsetOf(paragraph);
+        final pos = _scrollController.position;
+        // 精确落位：高度表来自实测排版，不需要逐帧逼近
+        _scrollController.jumpTo(target.clamp(0.0, pos.maxScrollExtent).toDouble());
+        WidgetsBinding.instance.addPostFrameCallback((_) => finish());
         return;
       }
       if (tries++ > 30) {
@@ -1484,29 +1504,9 @@ class _ReaderPageState extends State<ReaderPage>
   GlobalKey? _paragraphKey(int chapterIndex, int paragraphIndex) =>
       _paragraphKeys['$chapterIndex:$paragraphIndex'];
 
-  /// 实测并缓存本章各段落的相对偏移；有任何一段还没构建则返回 null（下次再试）。
-  List<double>? _paragraphOffsets(int chapterIndex) {
-    final cached = _paraOffsets[chapterIndex];
-    if (cached != null) return cached;
-    final count = _chapterParagraphs(chapterIndex).length;
-    if (count == 0) return null;
-    final offsets = List<double>.filled(count + 1, 0);
-    var acc = 0.0;
-    for (var i = 0; i < count; i++) {
-      final ctx = _paragraphKey(chapterIndex, i)?.currentContext;
-      final box = ctx?.findRenderObject();
-      if (box is! RenderBox || !box.attached) return null;
-      offsets[i] = acc;
-      acc += box.size.height;
-    }
-    offsets[count] = acc;
-    _paraOffsets[chapterIndex] = offsets;
-    return offsets;
-  }
 
   /// 每章各段落相对章节顶部的 y 偏移（实测一次，滚动期间复用）。
   /// 用它把「找顶部段落」从 O(段落数) 的 findRenderObject 扫描降为二分查找。
-  final Map<int, List<double>> _paraOffsets = {};
 
   /// 章节区块缓存：ReaderPage 因任何原因重建时，只要影响渲染的输入没变，
   /// 就复用同一批 Widget 实例，避免把上千个 Text 重新构建一遍。
@@ -1526,7 +1526,230 @@ class _ReaderPageState extends State<ReaderPage>
     rs.bold,
     _ttsActiveSegment?.start ?? -1,
     _selectionMode,
+    // 选区变化必须让区块重建，否则画布会继续用旧的 selectedParagraph
+    _selChapter,
+    _selParagraph,
+    _selStart,
+    _selEnd,
   ].join('|');
+
+// ---------------- 画布渲染（Legado 式） ----------------
+
+  /// 每章排版结果缓存（TextPainter + 高度表）。
+  final Map<int, ChapterTextLayout> _layoutCache = {};
+
+  /// 滚动区域 key：选区命中测试要把屏幕坐标换算到内容坐标。
+  final GlobalKey _scrollAreaKey = GlobalKey();
+
+  /// 选区状态：章 / 段 / 段内起止 / 拖拽锚点。
+  int _selChapter = -1;
+  int _selParagraph = -1;
+  int _selStart = 0;
+  int _selEnd = 0;
+  int _selAnchor = 0;
+
+  Color get _selectionHighlightColor =>
+      parseHexColor(_rs.textColor, fallback: Colors.black).withValues(alpha: 0.22);
+
+  Color get _handleColor =>
+      parseHexColor(_rs.textColor, fallback: Colors.black).withValues(alpha: 0.85);
+
+  /// 章内排版结果（按章缓存；签名变化时整体失效）。
+  ChapterTextLayout _layoutFor(int chapterIndex, ReaderSettings rs) {
+    final cached = _layoutCache[chapterIndex];
+    if (cached != null) return cached;
+    final layout = ChapterTextLayout.measure(
+      paragraphs: _chapterParagraphs(chapterIndex),
+      bodyStyle: _textStyle(rs),
+      titleStyle: _titleStyle(rs),
+      indent: rs.paragraphIndent,
+      paragraphSpacing: rs.paragraphSpacing,
+      width: _usableWidth(rs),
+    );
+    _layoutCache[chapterIndex] = layout;
+    return layout;
+  }
+
+  /// 章节在滚动内容中的顶部偏移。
+  double _chapterTop(int chapterIndex) {
+    var y = 0.0;
+    for (var i = _scrollWinStart; i < chapterIndex; i++) {
+      y += _layoutFor(i, _rs).height;
+    }
+    return y;
+  }
+
+  /// segment 起点落在第几段。
+  int _paragraphOfSegment(int chapterIndex, int start) {
+    final paragraphs = _chapterParagraphs(chapterIndex);
+    var offset = 0;
+    for (var i = 0; i < paragraphs.length; i++) {
+      if (offset + paragraphs[i].length > start) return i;
+      offset += paragraphs[i].length + 1;
+    }
+    return -1;
+  }
+
+  /// 一章 = 一块画布：段落只排版一次，滚动与重绘都不重建 widget。
+  Widget _chapterSectionCanvas(ReaderSettings rs, int chapterIndex) {
+    if (kDebugMode) _perfSections++;
+    final key = _scrollKeys.putIfAbsent(chapterIndex, () => GlobalKey());
+    final layout = _layoutFor(chapterIndex, rs);
+    final segment = chapterIndex == _chapterIndex ? _ttsActiveSegment : null;
+    final hlParagraph =
+        segment == null ? -1 : _paragraphOfSegment(chapterIndex, segment.start);
+    final hlRange = (segment == null || hlParagraph < 0)
+        ? null
+        : _scrollReadRange(
+            chapterIndex,
+            hlParagraph,
+            hlParagraph == 0 ? 0 : rs.paragraphIndent.length,
+          );
+    final selected = chapterIndex == _selChapter;
+    return SizedBox(
+      key: key,
+      width: double.infinity,
+      height: layout.height,
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: ChapterPainter(
+            layout: layout,
+            highlightParagraph: hlParagraph,
+            highlightRange: hlRange,
+            highlightColor:
+                readAloudHighlightStyle(_textStyle(rs)).backgroundColor,
+            selectedParagraph: selected ? _selParagraph : -1,
+            selectedStart: _selStart,
+            selectedEnd: _selEnd,
+            selectionColor: _selectionHighlightColor,
+            handleColor: _handleColor,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 选区操作条（复制 / 取消）。Legado 的 SelectActionBar 对应物。
+  Widget _selectionActionBar(ReaderSettings rs) {
+    final bg = parseHexColor(rs.bgColor, fallback: Colors.white);
+    final fg = parseHexColor(rs.textColor, fallback: Colors.black);
+    return Material(
+      color: bg,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                onPressed: () async {
+                  final text = _canvasSelectedText;
+                  if (text.isNotEmpty) {
+                    await Clipboard.setData(ClipboardData(text: text));
+                  }
+                  _clearCanvasSelection();
+                },
+                child: Text('复制', style: TextStyle(color: fg)),
+              ),
+            ),
+            Expanded(
+              child: TextButton(
+                onPressed: _clearCanvasSelection,
+                child: Text('取消', style: TextStyle(color: fg)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 屏幕坐标 →（章, 段, 段内局部坐标）。
+  ({int chapter, int paragraph, Offset local})? _hitTestText(Offset global) {
+    final box = _scrollAreaKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !_scrollController.hasClients) {
+      return null;
+    }
+    final local = box.globalToLocal(global);
+    final contentY =
+        local.dy + _scrollController.position.pixels - _rs.paddingTop;
+    var acc = 0.0;
+    for (var c = _scrollWinStart; c <= _scrollWinEnd; c++) {
+      final layout = _layoutFor(c, _rs);
+      if (contentY >= acc && contentY < acc + layout.height) {
+        final ly = contentY - acc;
+        final p = layout.paragraphAt(ly);
+        return (
+          chapter: c,
+          paragraph: p,
+          local: Offset(local.dx - _rs.paddingLeft, ly - layout.boxes[p].top),
+        );
+      }
+      acc += layout.height;
+    }
+    return null;
+  }
+
+  /// 长按选词（对应 Legado 的 onLongPress + BreakIterator）。
+  void _startTextSelection(Offset global) {
+    final hit = _hitTestText(global);
+    if (hit == null) return;
+    final layout = _layoutFor(hit.chapter, _rs);
+    final pos = layout.boxes[hit.paragraph].painter.getPositionForOffset(
+      hit.local,
+    );
+    final word = layout.wordAt(hit.paragraph, pos);
+    setState(() {
+      _selChapter = hit.chapter;
+      _selParagraph = hit.paragraph;
+      _selStart = word.start;
+      _selEnd = word.end;
+      _selAnchor = word.start;
+      _menuVisible = false;
+    });
+  }
+
+  /// 拖动扩展选区（对应 Legado 的 selectText）。
+  void _extendTextSelection(Offset global) {
+    if (_selChapter < 0) return;
+    final hit = _hitTestText(global);
+    if (hit == null || hit.chapter != _selChapter) return;
+    final layout = _layoutFor(_selChapter, _rs);
+    final pos = layout.boxes[_selParagraph].painter.getPositionForOffset(
+      hit.local,
+    );
+    setState(() {
+      if (pos.offset >= _selAnchor) {
+        _selStart = _selAnchor;
+        _selEnd = pos.offset;
+      } else {
+        _selStart = pos.offset;
+        _selEnd = _selAnchor;
+      }
+    });
+  }
+
+  String get _canvasSelectedText {
+    if (_selChapter < 0 || _selEnd <= _selStart) return '';
+    final layout = _layoutFor(_selChapter, _rs);
+    if (_selParagraph >= layout.boxes.length) return '';
+    final text = layout.boxes[_selParagraph].text;
+    return text.substring(
+      _selStart.clamp(0, text.length),
+      _selEnd.clamp(0, text.length),
+    );
+  }
+
+  void _clearCanvasSelection() {
+    if (_selChapter < 0) return;
+    setState(() {
+      _selChapter = -1;
+      _selParagraph = -1;
+      _selStart = 0;
+      _selEnd = 0;
+      _selAnchor = 0;
+    });
+  }
 
   List<Widget> _scrollSections(ReaderSettings rs, int start, int end) {
     final key = _sectionSignature(rs);
@@ -1534,55 +1757,10 @@ class _ReaderPageState extends State<ReaderPage>
     if (cached != null && key == _sectionCacheKey) return cached;
     _sectionCacheKey = key;
     // 排版参数变了，段落偏移表随之失效
-    _paraOffsets.clear();
     _sectionCache = [
-      for (var i = start; i <= end; i++)
-        RepaintBoundary(child: _chapterSection(rs, i)),
+      for (var i = start; i <= end; i++) _chapterSectionCanvas(rs, i),
     ];
     return _sectionCache!;
-  }
-
-  Widget _chapterSection(ReaderSettings rs, int chapterIndex) {
-    if (kDebugMode) _perfSections++;
-    final key = _scrollKeys.putIfAbsent(chapterIndex, () => GlobalKey());
-    final paragraphs = _chapterParagraphs(chapterIndex);
-    // 宽度显式撑满 + 交叉轴 start：无论外层父级如何对齐（Column 默认居中、
-    // 宽屏/横屏容器等），每章正文都从同一条左边线开始。
-    return SizedBox(
-      width: double.infinity,
-      child: Column(
-        key: key,
-        crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < paragraphs.length; i++)
-          Builder(
-            builder: (context) {
-              final isTitle = i == 0;
-              final paraStyle =
-                  isTitle ? _titleStyle(rs) : _textStyle(rs);
-              final indent = isTitle ? '' : rs.paragraphIndent;
-              return Padding(
-                key: _paragraphKeys.putIfAbsent(
-                  '$chapterIndex:$i',
-                  () => GlobalKey(),
-                ),
-                padding: EdgeInsets.only(bottom: rs.paragraphSpacing),
-                child: HighlightedText(
-                  text: '$indent${paragraphs[i]}',
-                  style: paraStyle,
-                  highlightStyle: readAloudHighlightStyle(paraStyle),
-                  highlightRange: _scrollReadRange(
-                    chapterIndex,
-                    i,
-                    indent.length,
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
@@ -1628,24 +1806,11 @@ class _ReaderPageState extends State<ReaderPage>
     final lineHeight = _scrollLineHeight;
     var topParagraph = 0;
     var linesBefore = 0;
-    final offsets = _paragraphOffsets(bestChapter);
-    if (offsets != null) {
-      final y = refTop - bestTop; // 视口参考线落在本章内的偏移
-      var lo = 0;
-      var hi = offsets.length - 1;
-      while (lo < hi - 1) {
-        final mid = (lo + hi) ~/ 2;
-        if (offsets[mid] <= y) {
-          lo = mid;
-        } else {
-          hi = mid;
-        }
-      }
-      topParagraph = lo.clamp(0, paragraphs.length - 1);
-      linesBefore = lineHeight <= 0
-          ? topParagraph
-          : (offsets[topParagraph] / lineHeight).round();
-    }
+    final layout = _layoutFor(bestChapter, _rs);
+    topParagraph = layout.paragraphAt(refTop - bestTop);
+    linesBefore = lineHeight <= 0
+        ? topParagraph
+        : (layout.offsetOf(topParagraph) / lineHeight).round();
 
     if (bestChapter != _chapterIndex) {
       setState(() {
