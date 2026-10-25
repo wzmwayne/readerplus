@@ -6,7 +6,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   ChapterTextLayout build(int n) => ChapterTextLayout.measure(
-        paragraphs: [for (var i = 0; i < n; i++) '第' + i.toString() + '段文字内容用于分页测试'],
+        paragraphs: [for (var i = 0; i < n; i++) '第$i段文字内容用于分页测试'],
         bodyStyle: const TextStyle(fontSize: 20, height: 1.5),
         titleStyle: const TextStyle(fontSize: 26, height: 1.5),
         indent: '　　',
