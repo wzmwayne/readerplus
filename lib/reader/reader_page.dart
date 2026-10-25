@@ -97,7 +97,6 @@ class _ReaderPageState extends State<ReaderPage>
   // 滚动模式渲染全部章节（惰性构建），跨章定位靠估算偏移 + ensureVisible 收敛。
   // 因此天然支持章节间连续滚动；用每章的 GlobalKey 跟踪当前位置。
   final Map<int, GlobalKey> _scrollKeys = {};
-  final Map<String, GlobalKey> _paragraphKeys = {};
   final Map<int, List<String>> _paragraphCache = {};
   int _scrollParagraphIndex = 0;
 

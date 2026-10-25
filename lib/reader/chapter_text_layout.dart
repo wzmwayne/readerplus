@@ -59,6 +59,49 @@ class ChapterTextLayout {
   }
 
   /// 给定本章内的 y 偏移，返回落在该处的段落序号（二分）。
+  /// 每行在章内的 y 起点（跨段落展开），按行切页用。
+  List<double> lineStarts() {
+    final out = <double>[];
+    for (final box in boxes) {
+      final metrics = box.painter.computeLineMetrics();
+      var y = box.top;
+      for (final m in metrics) {
+        out.add(y);
+        y += m.height;
+      }
+    }
+    return out;
+  }
+
+  /// 按视口高度切页：返回每页起始 y（页高固定 pageHeight）。
+  /// 页 = 本章排版的高度切片，切换分页/滚动模式无需重新排版。
+  List<double> paginate(double pageHeight) {
+    // 逐行判断「这一行放得下吗」：放不下就在该行前切页。
+    // 先收集每行的 (起点, 高度)，才能精确控制每页高度不超过视口。
+    final linesY = <double>[];
+    final linesH = <double>[];
+    for (final box in boxes) {
+      final metrics = box.painter.computeLineMetrics();
+      var y = box.top;
+      for (final m in metrics) {
+        linesY.add(y);
+        linesH.add(m.height);
+        y += m.height;
+      }
+    }
+    if (linesY.isEmpty) return const [0];
+    final limit = pageHeight <= 1 ? 1.0 : pageHeight;
+    final pages = <double>[linesY.first];
+    var pageTop = linesY.first;
+    for (var i = 0; i < linesY.length; i++) {
+      if (linesY[i] - pageTop + linesH[i] > limit) {
+        pageTop = linesY[i];
+        pages.add(pageTop);
+      }
+    }
+    return pages;
+  }
+
   int paragraphAt(double y) {
     if (boxes.isEmpty) return 0;
     var lo = 0;
