@@ -137,3 +137,16 @@ packaging/icon/              图标生成脚本（极简黑白书本）
 
 部分**界面设计与交互逻辑**（排版预设数值、主题配色、页眉页脚与翻页方式等）借鉴自开源项目
 [Legado](https://github.com/gedoor/legado)（GPL-3.0）。**本项目为独立实现，未包含 Legado 的源代码。**
+
+## 第三方资源与许可
+
+- **文泉驿正黑（等宽正黑，WenQuanYi Zen Hei Mono）** `assets/fonts/WenQuanYiZenHeiMono.ttf`
+  - 上游：<http://wenq.org/>（文泉驿项目），版本 0.9.45
+  - 版权：Copyright 2007-2009 Qianqian Fang and The WenQuanYi Project Board of Trustees；
+    1998-2004 Koanughi Un；1999-2004 Tsong-Min Wu, Tsong-Huey Wu；2005 Tsong-Min Wu,
+    Tsong-Huey Wu and Edward G.J. Lee；2004 Firefly；2002-2008 M+ FONTS PROJECT
+  - 许可：**GPL-2 with Font embedding exception** 以及 M+ FONTS License
+  - 完整声明见 `assets/fonts/LICENSE-WenQuanYiZenHei.txt`、`assets/fonts/NOTICE-WenQuanYiZenHei.txt`，
+    GPL-2 正文见 `assets/fonts/COPYING.GPL-2`
+  - 该字体作为**独立作品**随应用聚合分发（未与应用源码合并），字体文件自身的许可不变；
+    本应用整体仍为 GPL-3.0-or-later

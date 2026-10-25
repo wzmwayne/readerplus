@@ -243,7 +243,7 @@ class ReaderSettings {
     this.bgColor = '#C0EDC6',
     this.textColor = '#0B0B0B',
     this.nightMode = false,
-    this.fontFamily = '',
+    this.fontFamily = 'WenQuanYiZenHeiMono',
     this.pageMode = PageMode.slide,
     this.keepScreenOn = true,
     this.brightness = 0,

@@ -1372,9 +1372,9 @@ class _ReaderPageState extends State<ReaderPage>
 
   /// 分帧把预渲染窗口扩到「center ±5」：每帧只加一章，
   /// 避免一次性构建 11 章把 UI 线程占满（那会造成明显的首屏卡顿）。
-  void _fillScrollWindow(int center) {
-    final targetStart = math.max(0, center - 5);
-    final targetEnd = math.min(_chapters.length - 1, center + 5);
+  void _fillScrollWindow(int center, {int pad = 5}) {
+    final targetStart = math.max(0, center - pad);
+    final targetEnd = math.min(_chapters.length - 1, center + pad);
     void step() {
       if (!mounted) return;
       if (_scrollWinEnd < targetEnd) {
@@ -1438,11 +1438,13 @@ class _ReaderPageState extends State<ReaderPage>
     if (_chapters.isEmpty) return;
     // 离窗口边缘还有 2 章以上就不动；否则分帧补到「当前章 ±5」
     if (chapter > _scrollWinStart + 2 && chapter < _scrollWinEnd - 2) return;
-    final targetStart = math.max(0, chapter - 5);
-    final targetEnd = math.min(_chapters.length - 1, chapter + 5);
+    // 平时只保持「当前章 ±3 章」，打开书时才用 ±5（见 _scheduleScrollJump）
+    const pad = 3;
+    final targetStart = math.max(0, chapter - pad);
+    final targetEnd = math.min(_chapters.length - 1, chapter + pad);
     if (targetStart == _scrollWinStart && targetEnd == _scrollWinEnd) return;
     // 已到边缘：只需补缺的那一侧，_fillScrollWindow 会逐帧完成
-    _fillScrollWindow(chapter);
+    _fillScrollWindow(chapter, pad: pad);
   }
 
   /// 与滚动模式渲染一致的段落文本（首段标题不缩进，其余加缩进）。

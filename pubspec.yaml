@@ -37,5 +37,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    # 内嵌中文字体：文泉驿等宽正黑（GPL-2 + 字体嵌入例外，见 assets/fonts/NOTICE-*）
+    - family: WenQuanYiZenHeiMono
+      fonts:
+        - asset: assets/fonts/WenQuanYiZenHeiMono.ttf
   assets:
     - docs/插件开发指南.md

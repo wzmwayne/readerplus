@@ -1,0 +1,40 @@
+第三方字体：文泉驿正黑（WenQuanYi Zen Hei）— 等宽正黑（Mono）字族
+========================================================================
+
+本目录文件
+----------
+  WenQuanYiZenHeiMono.ttf      从 wqy-zenhei.ttc 抽取的「文泉驛等寬正黑」单一字族
+  LICENSE-WenQuanYiZenHei.txt  上游/发行版版权与许可声明（含 M+ FONTS License 全文）
+  COPYING.GPL-2                GNU General Public License 第 2 版全文
+
+来源
+----
+  上游：http://wenq.org/  WenQuanYi Project
+  版本：0.9.45
+  载体：Debian 包 fonts-wqy-zenhei (0.9.45-8) 的 /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc
+  抽取：未修改字形数据，仅从 TTC 中取出「等寬正黑」一个 face 另存为 TTF
+        （字体内嵌的 name 表、版权与许可字段保持原样，未剥离、未重命名）
+
+版权
+----
+  Copyright 2007-2009, Qianqian Fang and The WenQuanYi Project Board of Trustees
+  Copyright 1998-2004, Koanughi Un
+  Copyright 1999-2004, Tsong-Min Wu, Tsong-Huey Wu
+  Copyright 2005, Tsong-Min Wu, Tsong-Huey Wu and Edward G.J. Lee
+  Copyright 2004, Firefly
+  Copyright 2002-2008, M+ FONTS PROJECT
+
+许可
+----
+  GPL-2 with Font embedding exception 以及 M+ FONTS License。
+  字体文件本身以 GPL-2（附字体嵌入例外）分发；完整条款见同目录
+  LICENSE-WenQuanYiZenHei.txt，GPL-2 正文见 COPYING.GPL-2。
+
+  字体嵌入例外（原文节选）：
+    "As a special exception, if you create a document which uses this font,
+     and embed this font or unaltered portions of this font into the document,
+     this font does not by itself cause the resulting document to be covered
+     by the GNU General Public License."
+
+  说明：本应用（ReaderPlus）整体以 GPL-3.0-or-later 发布，字体作为**独立作品**
+  随应用聚合分发，未与应用源码合并为同一作品；字体文件本身保持 GPL-2 许可不变。
