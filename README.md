@@ -138,11 +138,23 @@ packaging/icon/              图标生成脚本（极简黑白书本）
 部分**界面设计与交互逻辑**（排版预设数值、主题配色、页眉页脚与翻页方式等）借鉴自开源项目
 [Legado](https://github.com/gedoor/legado)（GPL-3.0）。**本项目为独立实现，未包含 Legado 的源代码。**
 
-## 第三方资源与许可
+## 字体
 
-- **Sarasa Mono SC（等距更纱黑体 SC）Regular** `assets/fonts/SarasaMonoSC-Regular.ttf`
-  - 上游：<https://github.com/be5invis/Sarasa-Gothic>，版本 v1.0.43
-  - 版权：Copyright (c) 2015-2025, Renzhi Li (aka. Belleve Invis)
-  - 许可：**SIL Open Font License 1.1**（全文 `assets/fonts/OFL-1.1.txt`）
-  - 来源与抽取说明：`assets/fonts/NOTICE-SarasaMonoSC.txt`
-  - 字体作为独立作品聚合分发；本应用整体为 GPL-3.0-or-later
+**应用不内置任何字体，默认使用系统字体**，并通过 `kCjkFontFallback` 声明
+中 / 日 / 韩字形回退链（`lib/theme/app_theme.dart`），避免缺字渲染成方块。
+
+如需自定义阅读字体，在「设置 → 字体 → 导入字体包」中选择本地的 `.ttf` / `.otf`：
+
+- 字体文件复制到应用私有目录 `fonts/`，清单记录在 `fonts/fonts.json`；
+- 通过 `FontLoader` 在运行时注册（`lib/services/font_store.dart`），
+  应用启动时 `registerAll()` 自动重新注册，重启后依然生效；
+- 「恢复系统字体」可随时切回。
+
+这样做的原因：
+
+1. **体积**：一份全字集中文字重通常在 20–40 MB，内置会显著增大安装包；
+2. **许可**：第三方字体（如 Sarasa、文泉驿）各有其分发条款，
+   由用户自行获取的字体文件，其许可义务由用户与字体作者之间约定，
+   应用只需在运行时加载，不随包再分发。
+
+> 应用自身代码与资源仍为 GPL-3.0-or-later；`assets/` 下不包含任何字体文件。
