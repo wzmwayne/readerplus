@@ -120,8 +120,11 @@ void main() {
         synthesize: fakeSynth(log: log),
       );
       await controller.start('一。二。三。四。五。六。');
-      // 串行队列逐句合成，等待队列跑完
-      await Future<void>.delayed(const Duration(milliseconds: 900));
+      // 串行队列逐句合成；全量并行跑测试时机器负载高，轮询等待而不是固定延时
+      final deadline = DateTime.now().add(const Duration(seconds: 8));
+      while (DateTime.now().isBefore(deadline) && log.length < 4) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
       expect(log, ['一。', '二。', '三。', '四。']);
       expect(controller.preloadedCount, 4);
       expect(log, isNot(contains('五。')), reason: '不应越过预载窗口');
@@ -357,6 +360,11 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
       expect(attempts['一。'], greaterThanOrEqualTo(2), reason: '第一句应重试');
+      // 播放同样可能滞后（高负载）：轮询等待，而不是立刻断言
+      final playDeadline = DateTime.now().add(const Duration(seconds: 8));
+      while (DateTime.now().isBefore(playDeadline) && sink.played.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
       expect(sink.played, isNotEmpty, reason: '重试成功后应能播放');
       await controller.stop();
     });
