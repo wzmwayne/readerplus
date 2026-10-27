@@ -1,7 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
+
+import '../app_log.dart';
 import 'crypto_ops.dart';
+import 'js/js_async_interpreter.dart';
 import 'js/js_interpreter.dart';
 import 'js/js_runtime.dart';
 import 'script_storage.dart';
@@ -20,6 +24,17 @@ class ScriptVm {
   final ScriptStorage storage;
   final void Function(String message) onLog;
   final void Function(Object? value) onResult;
+
+  /// 询问用户：返回 Future（可被异步求值器透明等待）。
+  Future<Object?> Function(
+    String question, {
+    bool secret,
+    String preset,
+  }) onAsk = (question, {secret = false, preset = ''}) async => '';
+
+  /// 网络请求实现可注入（测试用），默认走真实 HTTP。
+  Future<Map<String, Object?>> Function(Map<String, Object?> options) httpImpl =
+      _defaultHttp;
 
   late final Interpreter interpreter = Interpreter(globals: _globals());
 
@@ -85,6 +100,18 @@ class ScriptVm {
           args.length > 3 ? toStringJs(args[3]) : 'utf8',
         );
       }),
+      'http': _httpGlobals(),
+      'ask': _fn('ask', (args) {
+        final question = args.isEmpty ? '' : toStringJs(args.first);
+        final options = args.length > 1 && args[1] is Map
+            ? (args[1] as Map).cast<String, Object?>()
+            : const <String, Object?>{};
+        return onAsk(
+          question,
+          secret: options['secret'] == true,
+          preset: toStringJs(options['preset'] ?? ''),
+        );
+      }),
       'mem': _tierGlobals(storage.memory),
       'tmp': _tierGlobals(storage.temp),
       'perm': _tierGlobals(storage.perm),
@@ -123,6 +150,78 @@ class ScriptVm {
   }
 
   Object? run(String source) => interpreter.run(source);
+
+  /// 异步执行（http / ask 可用）；纯同步脚本也可走这里。
+  Future<Object?> runAsync(String source) async {
+    final interp = AsyncInterpreter(globals: _globals());
+    return interp.run(source);
+  }
+
+  /// 网络：http.get(url) / http.post(url, body) / http.request(options)
+  /// 返回 { status, headers, text, bytes }。
+  Map<String, Object?> _httpGlobals() {
+    Future<Map<String, Object?>> send(Map<String, Object?> options) async {
+      try {
+        return await httpImpl(options);
+      } catch (error) {
+        AppLog.write('script', '网络请求失败：$error');
+        return <String, Object?>{
+          'status': 0,
+          'headers': const <String, String>{},
+          'text': '',
+          'bytes': const <int>[],
+          'error': '$error',
+        };
+      }
+    }
+
+    return _obj({
+      'get': _fn('get', (args) {
+        if (args.isEmpty) return Future.value(null);
+        return send({'url': toStringJs(args[0]), 'method': 'GET'});
+      }),
+      'post': _fn('post', (args) {
+        if (args.isEmpty) return Future.value(null);
+        return send({
+          'url': toStringJs(args[0]),
+          'method': 'POST',
+          'body': args.length > 1 ? toStringJs(args[1]) : '',
+        });
+      }),
+      'request': _fn('request', (args) {
+        final options = args.isNotEmpty && args.first is Map
+            ? (args.first as Map).cast<String, Object?>()
+            : const <String, Object?>{};
+        return send(options);
+      }),
+    });
+  }
+
+  /// 默认 HTTP 实现（可被测试替换）。返回规范化后的响应。
+  static Future<Map<String, Object?>> _defaultHttp(
+    Map<String, Object?> options,
+  ) async {
+    final url = Uri.parse(toStringJs(options['url']));
+    final method = toStringJs(options['method'] ?? 'GET').toUpperCase();
+    final headers = (options['headers'] as Map?)?.map((k, v) => MapEntry('$k', '$v')) ??
+        <String, String>{};
+    final body = options['body'] == null ? null : toStringJs(options['body']);
+    final wantBytes = options['wantBytes'] == true;
+    final timeoutMs =
+        options['timeoutMs'] is num ? (options['timeoutMs'] as num).toInt() : 20000;
+    final request = http.Request(method, url);
+    request.headers.addAll(headers);
+    if (body != null && body.isNotEmpty) request.body = body;
+    final streamed =
+        await http.Client().send(request).timeout(Duration(milliseconds: timeoutMs));
+    final bytes = await streamed.stream.toBytes();
+    return {
+      'status': streamed.statusCode,
+      'headers': streamed.headers,
+      'text': wantBytes ? '' : _decode(bytes, 'auto'),
+      'bytes': wantBytes ? bytes : const <int>[],
+    };
+  }
 
   static Map<String, Object?> _obj(Map<String, Object?> values) => values;
 
