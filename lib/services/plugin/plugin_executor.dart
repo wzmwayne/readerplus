@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
-import '../script/hetu_engine.dart';
+import '../script/js_engine.dart';
 import '../script/script_runner.dart';
 import '../source/rule_engine.dart';
 import '../source/rule_source.dart';
@@ -92,7 +92,7 @@ class PluginExecutor {
       _runRule(job, rule, send);
       return;
     }
-    HetuScriptEngine.isolateEntry(job, send);
+    JsScriptEngine.isolateEntry(job, send);
   }
 
   Future<PluginJobResult> run(
