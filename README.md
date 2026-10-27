@@ -160,3 +160,18 @@ packaging/icon/              图标生成脚本（极简黑白书本）
    应用只需在运行时加载，不随包再分发。
 
 > 应用自身代码与资源仍为 GPL-3.0-or-later；`assets/` 下不包含任何字体文件。
+
+## 无头环境验证（Linux）
+
+CI 与本地都可以用 Xvfb 跑图形验证，但 **Impeller + Xvfb 常常拿不到首帧**
+（窗口建出来却是全黑、日志无 `first-frame`）。加上软件渲染即可：
+
+```bash
+Xvfb :99 -screen 0 1400x1000x24 -nolisten tcp &
+DISPLAY=:99 openbox &
+cd build/linux/arm64/debug/bundle
+LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe DISPLAY=:99 ./reader &
+DISPLAY=:99 import -window root /tmp/shot.png
+```
+
+截图前等 20–30 秒（软件渲染首帧较慢），并用 `xdotool` 按绝对坐标点击。
