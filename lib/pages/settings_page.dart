@@ -376,12 +376,12 @@ Future<void> _importFontPackage(BuildContext context, AppState state) async {
     state.saveReaderSettings();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已导入并启用：' + imported.label)),
+      SnackBar(content: Text('已导入并启用：${imported.label}')),
     );
   } catch (e) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('导入失败：' + e.toString())),
+      SnackBar(content: Text('导入失败：$e')),
     );
   }
 }

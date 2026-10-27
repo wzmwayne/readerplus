@@ -10,7 +10,10 @@ const int ezbkMaxHeadingLevel = 3;
 const int ezbkMaxHeadingBytes = 120;
 const int ezbkMaxInlineBlobBytes = 256 * 1024;
 
-enum EzbkBlockKind { heading, paragraph }
+/// 强制分页：与原 Read-Flash 页面语言一致，单独一行 `---`。
+const String ezbkPageBreakMarker = '---';
+
+enum EzbkBlockKind { heading, paragraph, pageBreak }
 
 class EzbkBlock {
   const EzbkBlock(this.kind, this.text, {this.level = 1});
@@ -20,10 +23,17 @@ class EzbkBlock {
   final int level;
 
   bool get isHeading => kind == EzbkBlockKind.heading;
+  bool get isPageBreak => kind == EzbkBlockKind.pageBreak;
 
   /// 规范文本形式（标题带前导 #）。
-  String get source =>
-      isHeading ? '${String.fromCharCodes(List.filled(level, 0x23))} $text' : text;
+  String get source {
+    if (isPageBreak) return ezbkPageBreakMarker;
+    if (isHeading) {
+      final hashes = String.fromCharCodes(List.filled(level, 0x23));
+      return '$hashes $text';
+    }
+    return text;
+  }
 }
 
 class EzbkCommand {
@@ -69,6 +79,7 @@ class EzbkDocument {
   String toPlainText() {
     final buffer = StringBuffer();
     for (final b in blocks) {
+      if (b.isPageBreak) continue;
       buffer.writeln(b.text);
     }
     return buffer.toString();
@@ -95,6 +106,12 @@ class EzbkCodec {
       final raw = lines[i];
       final trimmed = raw.trim();
       if (trimmed.isEmpty) continue;
+
+      // 0) 强制分页：单独一行 ---（兼容 Read-Flash 页面语言）
+      if (trimmed == ezbkPageBreakMarker) {
+        blocks.add(const EzbkBlock(EzbkBlockKind.pageBreak, ''));
+        continue;
+      }
 
       // 1) 转义行：行首两个反斜杠，去掉后按字面输出
       if (raw.startsWith('\\\\')) {
@@ -161,7 +178,6 @@ class EzbkCodec {
           case 'image':
           case 'hr':
           case 'toc':
-          case 'pagebreak':
             commands.add(command);
           default:
             warnings.add('第 ${i + 1} 行未知命令 @$name，已忽略');

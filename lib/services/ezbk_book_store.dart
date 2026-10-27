@@ -10,9 +10,9 @@ import 'app_log.dart';
 /// 书籍存储：**EZBK 是正本**，纯文本 + 章节偏移是派生缓存。
 ///
 /// 目录布局（应用私有目录下）：
-///   books/<id>/book.ezbk     正本（EZBK v1.1）
-///   books/<id>/content.txt   派生纯文本（阅读器/TTS/进度沿用）
-///   books/<id>/chapters.json 派生章节偏移（基于纯文本）
+///   `books/{id}/book.ezbk`     正本（EZBK v1.1）
+///   `books/{id}/content.txt`   派生纯文本（阅读器/TTS/进度沿用）
+///   `books/{id}/chapters.json` 派生章节偏移（基于纯文本）
 ///
 /// 这样阅读、朗读、进度、分页等既有路径完全不需要改动；
 /// 导出 TXT/EPUB 时以 book.ezbk 为准重新推导。

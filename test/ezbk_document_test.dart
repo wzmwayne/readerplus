@@ -14,7 +14,8 @@ void main() {
     });
 
     test('超过 120 字节的标题降级为正文', () {
-      final long = '#' + 'x' * 130;
+      final x = 'x' * 130;
+      final long = '#$x';
       final doc = EzbkCodec.parse(long);
       expect(doc.headings, isEmpty);
       expect(doc.warnings, isNotEmpty);
@@ -24,6 +25,19 @@ void main() {
       final doc = EzbkCodec.parse('#\n# \n正文');
       expect(doc.headings, isEmpty);
       expect(doc.blocks.length, 3);
+    });
+
+    test('单独一行 --- 是换页符（兼容原项目）', () {
+      final doc = EzbkCodec.parse('正文甲\n---\n正文乙');
+      expect(doc.blocks.length, 3);
+      expect(doc.blocks[1].isPageBreak, isTrue);
+      expect(doc.toPlainText().contains('---'), isFalse);
+    });
+
+    test('@pagebreak 已不再支持（按未知命令告警）', () {
+      final doc = EzbkCodec.parse('@pagebreak');
+      expect(doc.commands, isEmpty);
+      expect(doc.warnings, isNotEmpty);
     });
 
     test('转义行不参与解析', () {
