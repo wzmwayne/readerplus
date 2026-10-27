@@ -10,6 +10,7 @@ import '../services/plugin/script_meta.dart';
 import '../services/plugin/source_store.dart';
 import '../state/app_state.dart';
 import 'script_consent_page.dart';
+import 'script_storage_page.dart';
 
 /// 插件管理页：**所有**脚本与规则（书源在内）的查看、编辑、删除、添加。
 ///
@@ -372,6 +373,18 @@ result('ok')
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  IconButton(
+                                    tooltip: '存储',
+                                    icon: const Icon(Icons.storage_outlined, size: 18),
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => ScriptStoragePage(
+                                          scriptId: script.id,
+                                          title: script.name,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                   IconButton(
                                     tooltip: '编辑',
                                     icon: const Icon(Icons.edit_outlined, size: 18),

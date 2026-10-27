@@ -9,6 +9,7 @@ import 'pages/crash_page.dart';
 import 'pages/home_shell.dart';
 import 'services/app_log.dart';
 import 'services/font_store.dart';
+import 'services/script/script_storage.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
 
@@ -27,6 +28,8 @@ Future<void> main() async {
   await state.init();
   // 注册用户导入的字体包（不内置字体，默认系统字体）
   await FontStore().registerAll();
+  // 清扫脚本临时存储：tmp 层只对单次运行有效，残留一律丢弃
+  await ScriptStorage.sweepTemp();
   if (kDebugMode) {
     debugPrint('[startup] init=${sw.elapsedMilliseconds}ms');
   }
