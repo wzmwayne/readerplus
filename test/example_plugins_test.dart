@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader/services/epub_importer.dart';
-import 'package:reader/services/script/hetu_engine.dart';
+import 'package:reader/reader/ezbk/ezbk_document.dart';
+import 'package:reader/services/script/js_engine.dart';
 import 'package:reader/services/script/script_runner.dart';
 
 /// 内置示例插件必须跑在**新引擎**上：纯 Dart、isolate 隔离、无原生依赖。
@@ -14,47 +14,44 @@ void main() {
     Directory? outputDir,
   }) async {
     final source = await File(scriptPath).readAsString();
-    final runner = ScriptRunner(entry: HetuScriptEngine.isolateEntry);
+    final runner = ScriptRunner(entry: JsScriptEngine.isolateEntry);
+    final storageRoot =
+        '${Directory.systemTemp.path}/readerplus_example/${DateTime.now().microsecondsSinceEpoch}';
     return runner.run(
       source,
       inputs: inputs,
       params: params,
       outputDir: outputDir,
+      storageRoot: storageRoot,
       timeout: const Duration(seconds: 30),
     );
   }
 
-  test('示例一：TXT 清洗转 EPUB（产出可被应用解析器读回的 EPUB）', () async {
+  test('示例一：TXT 清洗输出 EZBK 文本（可被解析器读回）', () async {
     final outDir = await Directory.systemTemp.createTemp('example_clean');
     final input = await File('test/fixtures/sample_book.txt').readAsBytes();
     final result = await runExample(
-      'examples/plugins/txt_cleaner.ht',
+      'examples/plugins/txt_cleaner.js',
       inputs: {'raw.txt': input},
-      params: {'title': '夜航船（示例）', 'author': '测试作者'},
+      params: {'task': 'import'},
       outputDir: outDir,
     );
     expect(result.ok, isTrue, reason: result.error);
-    expect(result.logs.join('\n'), contains('切分得到 3 章'));
+    final text = '${result.result ?? ''}';
+    expect(text, isNotEmpty, reason: '清洗脚本应返回 EZBK 文本');
 
-    final epub = File('${outDir.path}/book.epub');
-    expect(epub.existsSync(), isTrue, reason: '脚本应写出 book.epub');
-    final book = EpubImporter.parse(await epub.readAsBytes());
-    expect(book.title, '夜航船（示例）');
-    expect(book.author, '测试作者');
-    expect(book.chapters.map((c) => c.title).toList(), [
-      '第一章 夜叩门',
-      '第二章 旧信笺',
-      '第三章 山中客',
-    ]);
-    expect(book.content, contains('更夫敲梆子'));
-    // 清洗只做规范化（去零宽/BOM），**不删正文内容**：广告行必须保留
-    expect(book.content, contains('广告：'), reason: '内置清洗脚本不应删除正文内容');
+    // 返回内容必须是合规 EZBK：能被解析，且有标题与正文
+    final doc = EzbkCodec.parse(text);
+    expect(doc.headings, isNotEmpty, reason: '应至少有一个 # 标题');
+    expect(doc.toPlainText(), contains('更夫敲梆子'));
+    // 清洗只做规范化，**不删正文内容**：广告行必须保留
+    expect(doc.toPlainText(), contains('广告：'));
     await outDir.delete(recursive: true);
   });
 
   test('示例二：假书源搜索（不联网，返回条目）', () async {
     final result = await runExample(
-      'examples/plugins/fake_source.ht',
+      'examples/plugins/fake_source.js',
       params: {'task': 'search', 'query': '测试'},
     );
     expect(result.ok, isTrue, reason: result.error);
@@ -70,7 +67,7 @@ void main() {
 
   test('示例二：关键词 fail 触发失败（错误路径可控）', () async {
     final result = await runExample(
-      'examples/plugins/fake_source.ht',
+      'examples/plugins/fake_source.js',
       params: {'task': 'search', 'query': 'fail'},
     );
     expect(result.ok, isFalse);
@@ -79,7 +76,7 @@ void main() {
 
   test('示例二：下载任务返回章节', () async {
     final result = await runExample(
-      'examples/plugins/fake_source.ht',
+      'examples/plugins/fake_source.js',
       params: {'task': 'download', 'id': '1'},
     );
     expect(result.ok, isTrue, reason: result.error);

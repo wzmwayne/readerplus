@@ -350,7 +350,12 @@ void main() {
         },
       );
       await controller.start('一。二。');
-      await Future<void>.delayed(const Duration(milliseconds: 800));
+      // 全量并行跑测试时机器负载高，固定延时不可靠：轮询等待，最多 6 秒
+      final deadline = DateTime.now().add(const Duration(seconds: 6));
+      while (DateTime.now().isBefore(deadline) &&
+          (attempts['一。'] ?? 0) < 2) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
       expect(attempts['一。'], greaterThanOrEqualTo(2), reason: '第一句应重试');
       expect(sink.played, isNotEmpty, reason: '重试成功后应能播放');
       await controller.stop();

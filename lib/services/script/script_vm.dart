@@ -125,7 +125,7 @@ class ScriptVm {
         'raw': _fn('raw', (args) {
           if (args.isEmpty) return null;
           final bytes = tier.readRaw(toStringJs(args.first)) as Uint8List?;
-          return bytes == null ? null : bytes.toList();
+          return bytes?.toList();
         }),
         'utf8': _fn('utf8', (args) {
           if (args.isEmpty) return null;

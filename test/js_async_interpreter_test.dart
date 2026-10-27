@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader/services/script/js/js_async_interpreter.dart';
 import 'package:reader/services/script/js/js_interpreter.dart';
@@ -25,7 +23,7 @@ void main() {
     final out = await runAsync(
       'var r = fetch("u"); r.body',
       {
-        'fetch': fn((args) => Future.value({'body': 'got ' + toStringJs(args.first)})),
+        'fetch': fn((args) => Future.value({'body': 'got ${toStringJs(args.first)}'})),
       },
     );
     expect(out, 'got u');

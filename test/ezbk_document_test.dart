@@ -65,7 +65,8 @@ void main() {
 
     test('@blob base64 往返', () {
       final bytes = utf8.encode('hello ezbk');
-      final src = '@blob cover ' + base64Encode(bytes) + '\n@image blob:cover';
+      final b64 = base64Encode(bytes);
+      final src = '@blob cover $b64\n@image blob:cover';
       final doc = EzbkCodec.parse(src);
       expect(doc.blobs['cover'], isNotNull);
       expect(utf8.decode(doc.blobs['cover']!), 'hello ezbk');

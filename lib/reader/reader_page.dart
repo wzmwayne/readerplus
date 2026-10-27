@@ -970,7 +970,7 @@ class _ReaderPageState extends State<ReaderPage>
     final starts = layout.lineStarts();
     if (starts.isEmpty || flat.lastLine >= starts.length) {
       _logRenderPath('fb:${flat.chapter}:${flat.pageInChapter}:range',
-          '分页渲染：回退 widget（行号越界）ch=${flat.chapter} page=${flat.pageInChapter} '+
+          '分页渲染：回退 widget（行号越界）ch=${flat.chapter} page=${flat.pageInChapter} '
           'firstLine=${flat.firstLine} lastLine=${flat.lastLine} lines=${starts.length}');
       return null;
     }
@@ -989,14 +989,14 @@ class _ReaderPageState extends State<ReaderPage>
     final pageText = entries.first.paragraph.text.trim();
     if (canvasText != pageText) {
       _logRenderPath('fb:${flat.chapter}:${flat.pageInChapter}:mismatch',
-          '分页渲染：回退 widget（首段不一致）ch=${flat.chapter} page=${flat.pageInChapter} '+
-          'canvas="${canvasText.length > 12 ? canvasText.substring(0, 12) : canvasText}" '+
+          '分页渲染：回退 widget（首段不一致）ch=${flat.chapter} page=${flat.pageInChapter} '
+          'canvas="${canvasText.length > 12 ? canvasText.substring(0, 12) : canvasText}" '
           'page="${pageText.length > 12 ? pageText.substring(0, 12) : pageText}"');
       return null;
     }
     _logRenderPath('cv:${flat.chapter}:${flat.pageInChapter}',
-        '分页渲染：画布 ch=${flat.chapter} page=${flat.pageInChapter} '+
-        'top=${top.toStringAsFixed(1)} h=${(end - top).toStringAsFixed(1)} '+
+        '分页渲染：画布 ch=${flat.chapter} page=${flat.pageInChapter} '
+        'top=${top.toStringAsFixed(1)} h=${(end - top).toStringAsFixed(1)} '
         'firstLine=${flat.firstLine} lastLine=${flat.lastLine}');
     final segment = _ttsActiveSegment;
     final hlP = segment == null
