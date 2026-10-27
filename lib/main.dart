@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -28,8 +29,11 @@ Future<void> main() async {
   await state.init();
   // 注册用户导入的字体包（不内置字体，默认系统字体）
   await FontStore().registerAll();
-  // 清扫脚本临时存储：tmp 层只对单次运行有效，残留一律丢弃
-  await ScriptStorage.sweepTemp();
+  // 清扫脚本临时存储：tmp 层只对单次运行有效，残留一律丢弃。
+  // 不阻塞首帧：清理失败也不影响启动。
+  unawaited(ScriptStorage.sweepTemp().catchError((Object e) {
+    AppLog.write('store', '清扫临时存储失败：$e');
+  }));
   if (kDebugMode) {
     debugPrint('[startup] init=${sw.elapsedMilliseconds}ms');
   }
