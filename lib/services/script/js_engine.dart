@@ -66,7 +66,7 @@ class JsScriptEngine {
       vm.injectTask(
         task: {
           'kind': '${job['kind'] ?? 'tool'}',
-          'task': '${job['task'] ?? ''}',
+          'task': '${job['task'] ?? params['task'] ?? ''}',
           'params': params,
           'inputs': [
             for (final entry in inputs.entries)

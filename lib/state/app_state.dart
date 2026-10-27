@@ -7,6 +7,7 @@ import '../models/book.dart';
 import '../models/reader_settings.dart';
 import '../services/library_repository.dart';
 import '../services/app_log.dart';
+import '../services/plugin/plugin_executor.dart';
 import '../services/storage.dart';
 
 /// 全局状态：书架与设置。
@@ -68,6 +69,47 @@ class AppState extends ChangeNotifier {
   }
 
   /// 导入本地书籍：按扩展名自动分派 TXT / EPUB。
+  /// 脚本接管导入：把文件原始字节交给脚本，脚本 result() 返回 EZBK 文本。
+  Future<Book?> importBookWithScript(
+    File file,
+    String scriptSource, {
+    String fallbackTitle = '',
+  }) async {
+    try {
+      busy = true;
+      notifyListeners();
+      AppLog.info('import', '脚本导入开始：${file.path}');
+      final name = file.uri.pathSegments.last;
+      final job = PluginJob.script(
+        source: scriptSource,
+        params: {'task': 'import'},
+        inputs: {name: await file.readAsBytes()},
+        timeout: const Duration(seconds: 120),
+      );
+      final run = await const PluginExecutor().run(job,
+          onLog: (message) => AppLog.info('script', message));
+      if (!run.ok) {
+        _notify('脚本导入失败：${run.error}');
+        return null;
+      }
+      final text = run.result is String ? run.result as String : '${run.result ?? ''}';
+      if (text.trim().isEmpty) {
+        _notify('脚本没有返回 EZBK 文本');
+        return null;
+      }
+      final book = await library.importEzbkText(text, fallbackTitle: fallbackTitle);
+      AppLog.info('import', '脚本导入完成：${book.title}');
+      _notify('已导入《${book.title}》，共 ${book.chapterCount} 章');
+      return book;
+    } catch (e) {
+      _notify('脚本导入失败：$e');
+      return null;
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
   Future<Book?> importBook(File file) async {
     try {
       busy = true;

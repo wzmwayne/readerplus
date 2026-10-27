@@ -9,7 +9,7 @@ void main() {
   const executor = PluginExecutor();
 
   test('脚本作业：内置假书源在新执行器上可搜索', () async {
-    final source = await File('examples/plugins/fake_source.ht').readAsString();
+    final source = await File('examples/plugins/fake_source.js').readAsString();
     final result = await executor.run(
       PluginJob.script(
         source: source,

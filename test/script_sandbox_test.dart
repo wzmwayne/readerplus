@@ -1,59 +1,44 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader/services/plugin/plugin_executor.dart';
-import 'package:reader/services/script/script_host.dart';
+import 'package:reader/services/script/script_storage.dart';
 
-/// 脚本工作目录（沙箱）：脚本可完全操控，但出不去。
+/// 沙箱边界：脚本只能通过三级存储读写，且不同脚本互不可见。
 void main() {
-  const executor = PluginExecutor();
+  late Directory root;
 
-  test('工作目录可自由读写增删（无需自带产物目录）', () async {
-    final result = await executor.run(
-      const PluginJob.script(
-        // 用显式字节数组，避免依赖 Hetu 的字符串 API
-        source: r'''
-          log('工作目录：' + sandboxDir())
-          fileWrite('a.txt', [228, 189, 160, 229, 165, 189])
-          fileWrite('sub/b.bin', [1, 2, 3])
-          var list = fileList()
-          var payload = {}
-          payload['hasA'] = fileExists('a.txt')
-          payload['hasSub'] = fileExists('sub/b.bin')
-          payload['sizeA'] = fileSize('a.txt')
-          payload['textA'] = fileText('a.txt')
-          payload['count'] = list.length
-          payload['deleted'] = fileDelete('a.txt')
-          payload['hasAAfterDelete'] = fileExists('a.txt')
-          result(payload)
-        ''',
-        timeout: Duration(seconds: 30),
-      ),
-    );
-    expect(result.ok, isTrue, reason: result.error);
-    final payload = result.result as Map;
-    expect(payload['hasA'], isTrue);
-    expect(payload['hasSub'], isTrue, reason: '应能自动创建子目录');
-    expect(payload['sizeA'], 6, reason: '“你好”是 6 字节 UTF-8');
-    expect(payload['textA'], '你好');
-    expect(payload['count'], greaterThanOrEqualTo(1));
-    expect(payload['deleted'], isTrue);
-    expect(payload['hasAAfterDelete'], isFalse);
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('script_sandbox_test');
   });
 
-  test('路径穿越防护：..、绝对路径、盘符一律拒绝（直接测宿主，不经过脚本）', () async {
-    final dir = await Directory.systemTemp.createTemp('sandbox_guard');
-    final host = ScriptHost(onLog: (_) {}, outputDir: dir);
-    try {
-      expect(() => host.fileWrite('../escape.txt', [1]), throwsArgumentError);
-      expect(() => host.fileRead('/etc/passwd'), throwsArgumentError);
-      expect(() => host.fileWrite('a/../../b.txt', [1]), throwsArgumentError);
-      expect(() => host.fileWrite('c:/x.txt', [1]), throwsArgumentError);
-      // 合法路径仍可写
-      expect(host.fileWrite('ok.txt', [1, 2]), contains('ok.txt'));
-      expect(host.fileExists('ok.txt'), isTrue);
-    } finally {
-      await dir.delete(recursive: true);
-    }
+  tearDown(() async {
+    if (root.existsSync()) await root.delete(recursive: true);
+  });
+
+  test('不同脚本的永久存储相互隔离', () async {
+    final a = await ScriptStorage.open('script-a', rootProvider: () async => root);
+    final b = await ScriptStorage.open('script-b', rootProvider: () async => root);
+    a.perm.writeUtf8('k', 'A');
+    b.perm.writeUtf8('k', 'B');
+    expect(a.perm.readUtf8('k'), 'A');
+    expect(b.perm.readUtf8('k'), 'B');
+  });
+
+  test('临时层清扫后不可见，永久层保留', () async {
+    final s = await ScriptStorage.open('script-a', rootProvider: () async => root);
+    s.temp.writeUtf8('t', '1');
+    s.perm.writeUtf8('p', '2');
+    await ScriptStorage.sweepTemp(rootProvider: () async => root);
+    final again = await ScriptStorage.open('script-a', rootProvider: () async => root);
+    expect(again.temp.keys(), isEmpty);
+    expect(again.perm.readUtf8('p'), '2');
+  });
+
+  test('键名不会写出到目录之外', () async {
+    final s = await ScriptStorage.open('script-a', rootProvider: () async => root);
+    s.perm.writeUtf8('../../escape', 'x');
+    final escaped = File('${root.path}/../../escape');
+    expect(escaped.existsSync(), isFalse);
+    expect(s.perm.readUtf8('../../escape'), 'x');
   });
 }

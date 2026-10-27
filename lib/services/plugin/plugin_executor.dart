@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../script/js_engine.dart';
 import '../script/script_runner.dart';
 import '../source/rule_engine.dart';
@@ -85,6 +87,16 @@ class PluginJobResult {
 class PluginExecutor {
   const PluginExecutor();
 
+  /// 存储根：必须在主 isolate 解析（后台 isolate 无平台通道）。
+  static Future<String> _storageRoot() async {
+    try {
+      final base = await getApplicationSupportDirectory();
+      return '${base.path}/reader';
+    } catch (_) {
+      return '${Directory.systemTemp.path}/readerplus';
+    }
+  }
+
   /// 传给 [ScriptRunner] 的隔离入口（静态，可跨 isolate 传递）。
   static void isolateEntry(Map<String, Object?> job, SendPort send) {
     final rule = job['rule'];
@@ -128,6 +140,7 @@ class PluginExecutor {
       params: jobForRun.params,
       ruleJson: jobForRun.rule,
       token: token,
+      storageRoot: await _storageRoot(),
     );
     final outputs = <File>[];
     final dir = job.outputDir;

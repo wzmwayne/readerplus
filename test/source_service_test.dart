@@ -61,7 +61,7 @@ void main() {
   });
 
   test('服务层：内置假书源（脚本）搜索/详情/下载 + 实时日志', () async {
-    final source = await File('examples/plugins/fake_source.ht').readAsString();
+    final source = await File('examples/plugins/fake_source.js').readAsString();
     final entry = SourceEntry(
       id: 'fake',
       name: '本地测试书源',
@@ -98,7 +98,7 @@ void main() {
   });
 
   test('服务层：搜索失败时抛出带原因的异常（错误路径可控）', () async {
-    final source = await File('examples/plugins/fake_source.ht').readAsString();
+    final source = await File('examples/plugins/fake_source.js').readAsString();
     final entry = SourceEntry(
       id: 'fake',
       name: '本地测试书源',

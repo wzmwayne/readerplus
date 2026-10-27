@@ -112,6 +112,8 @@ class ScriptRunner {
     Map<String, String> params = const {},
     String? ruleJson,
     ScriptCancelToken? token,
+    /// 存储根（由主 isolate 解析后传入；后台 isolate 无法用平台通道）
+    String? storageRoot,
   }) async {
     final started = DateTime.now();
     final receive = ReceivePort();
@@ -133,6 +135,7 @@ class ScriptRunner {
           'job': <String, Object?>{
             'source': source,
             'rule': ruleJson,
+            'storageRoot': storageRoot,
             'inputs': inputs,
             'outputDir': outputDir?.path,
             'params': params,

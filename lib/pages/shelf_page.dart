@@ -10,6 +10,7 @@ import '../models/book.dart';
 import '../reader/reader_page.dart';
 import '../services/app_log.dart';
 import '../services/txt/txt_to_epub.dart';
+import '../services/plugin/source_store.dart';
 import '../state/app_state.dart';
 import '../widgets/book_cover.dart';
 
@@ -73,6 +74,12 @@ class _ShelfPageState extends State<ShelfPage> {
               subtitle: const Text('导入后转换为 EZBK 存储'),
               onTap: () => Navigator.pop(ctx, 'txt'),
             ),
+            ListTile(
+              leading: const Icon(Icons.code_outlined),
+              title: const Text('用脚本导入'),
+              subtitle: const Text('脚本接管：接收文件二进制，返回 EZBK 文本'),
+              onTap: () => Navigator.pop(ctx, 'script'),
+            ),
           ],
         ),
       ),
@@ -81,9 +88,61 @@ class _ShelfPageState extends State<ShelfPage> {
     await _importBook(onlyKind: kind);
   }
 
+  /// 脚本接管导入：选脚本 → 选文件 → 脚本返回 EZBK 文本 → 建书。
+  Future<void> _importWithScript(AppState state) async {
+    final scripts = await SourceStore().load();
+    if (!mounted) return;
+    if (scripts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('还没有可用脚本，请先在「插件」页导入 .js')),
+      );
+      return;
+    }
+    final picked = await showModalBottomSheet<SourceEntry>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('选择导入脚本',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            for (final script in scripts)
+              ListTile(
+                title: Text(script.name),
+                subtitle: Text(script.kind.label),
+                onTap: () => Navigator.pop(ctx, script),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    const anyType = XTypeGroup(label: '任意文件', mimeTypes: ['*/*']);
+    final file = await openFile(acceptedTypeGroups: const [anyType]);
+    if (file == null || !mounted) return;
+    final book = await state.importBookWithScript(
+      File(file.path),
+      picked.body,
+      fallbackTitle: picked.name,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(book == null ? '脚本导入失败' : '已导入《${book.title}》'),
+      ),
+    );
+  }
+
   Future<void> _importBook({String? onlyKind}) async {
     AppLog.info('shelf', '点击导入书籍${onlyKind == null ? '' : '（$onlyKind）'}');
     final state = context.read<AppState>();
+    if (onlyKind == 'script') {
+      await _importWithScript(state);
+      return;
+    }
     try {
       final group = switch (onlyKind) {
         'ezbk' => XTypeGroup(

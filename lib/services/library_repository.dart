@@ -81,6 +81,23 @@ class LibraryRepository {
     return importTxt(file);
   }
 
+  /// 由 EZBK **文本**建书（脚本接管导入的产物）：解析 → 建书 → 写正本。
+  Future<Book> importEzbkText(String text, {String? fallbackTitle}) async {
+    final doc = EzbkCodec.parse(text);
+    final derived = EzbkBookStore.derivePlainText(doc);
+    final book = Book(
+      id: Book.newId(),
+      title: doc.title.isEmpty ? (fallbackTitle ?? '未命名') : doc.title,
+      author: doc.meta['author'] ?? '',
+      originalPath: '',
+      charCount: derived.text.length,
+      chapterCount: derived.chapters.length,
+    );
+    await _persist(book, derived.text, derived.chapters);
+    await EzbkBookStore().save(book.id, doc);
+    return book;
+  }
+
   /// 直接导入 EZBK 文档（v1.1）：解析 → 建书 → 写正本与派生缓存。
   Future<Book> importEzbk(File file) async {
     final doc = EzbkCodec.parse(file.readAsStringSync());

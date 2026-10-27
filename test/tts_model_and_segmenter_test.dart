@@ -91,7 +91,9 @@ void main() {
     test('zip 内越界路径 → 拒绝', () async {
       final store = TtsModelStore(root: () async => root);
       final bad = Archive();
-      bad.addFile(ArchiveFile('../evil.onnx', 4, Uint8List(2 * 1024 * 1024)));
+      // 声明大小必须与实际数据一致，否则坏的是 zip 本身（格式错误），
+      // 测不到「路径越界」这条校验。
+      bad.addFile(ArchiveFile('../evil.onnx', 2 * 1024 * 1024, Uint8List(2 * 1024 * 1024)));
       await expectLater(
         store.importPackage(await zipOf(bad)),
         throwsA(isA<TtsModelImportException>().having(
