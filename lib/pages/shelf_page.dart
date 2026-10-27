@@ -29,7 +29,7 @@ class _ShelfPageState extends State<ShelfPage> {
 
   static const _bookTypeGroup = XTypeGroup(
     label: '电子书',
-    extensions: ['txt', 'epub'],
+    extensions: ['ezbk', 'txt', 'epub'],
     // 严格只放行这两种：不加 application/octet-stream，
     // 否则 Android 选择器会放行一切文件（连 .ht 脚本都能选）
     mimeTypes: ['text/plain', 'application/epub+zip'],
@@ -38,14 +38,72 @@ class _ShelfPageState extends State<ShelfPage> {
   /// 书架只接受 txt / epub；其它后缀（例如误选的 .ht 脚本）明确拒绝并提示。
   static bool _isBookFile(String path) {
     final lower = path.toLowerCase();
-    return lower.endsWith('.txt') || lower.endsWith('.epub');
+    return lower.endsWith('.ezbk') ||
+        lower.endsWith('.txt') ||
+        lower.endsWith('.epub');
   }
 
-  Future<void> _importBook() async {
-    AppLog.info('shelf', '点击导入书籍');
+  /// 导入入口：先选格式（ezbk / epub / txt），再选文件。
+  Future<void> _pickImportKind() async {
+    final kind = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('选择导入格式', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.auto_stories_outlined),
+              title: const Text('EZBK（简单电子书）'),
+              subtitle: const Text('直接导入，不转换'),
+              onTap: () => Navigator.pop(ctx, 'ezbk'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.import_contacts_outlined),
+              title: const Text('EPUB'),
+              subtitle: const Text('导入后转换为 EZBK 存储'),
+              onTap: () => Navigator.pop(ctx, 'epub'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('TXT'),
+              subtitle: const Text('导入后转换为 EZBK 存储'),
+              onTap: () => Navigator.pop(ctx, 'txt'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (kind == null || !mounted) return;
+    await _importBook(onlyKind: kind);
+  }
+
+  Future<void> _importBook({String? onlyKind}) async {
+    AppLog.info('shelf', '点击导入书籍${onlyKind == null ? '' : '（$onlyKind）'}');
     final state = context.read<AppState>();
     try {
-      final file = await openFile(acceptedTypeGroups: const [_bookTypeGroup]);
+      final group = switch (onlyKind) {
+        'ezbk' => XTypeGroup(
+            label: 'EZBK',
+            extensions: ['ezbk'],
+            mimeTypes: ['text/plain', 'application/octet-stream'],
+          ),
+        'epub' => XTypeGroup(
+            label: 'EPUB',
+            extensions: ['epub'],
+            mimeTypes: ['application/epub+zip'],
+          ),
+        'txt' => XTypeGroup(
+            label: 'TXT',
+            extensions: ['txt'],
+            mimeTypes: ['text/plain'],
+          ),
+        _ => _bookTypeGroup,
+      };
+      final file = await openFile(acceptedTypeGroups: [group]);
       if (file == null) {
         AppLog.info('shelf', '未选择文件（选择器返回空）');
         return;
@@ -65,7 +123,20 @@ class _ShelfPageState extends State<ShelfPage> {
       }
       // TXT：纯 Dart 管线（编码探测 → 规则清洗 → 分章 → EPUB 3 → 入库）
       // EPUB：直接导入
-      if (picked.path.toLowerCase().endsWith('.txt')) {
+      final lower = picked.path.toLowerCase();
+      if (lower.endsWith('.ezbk')) {
+        final book = await state.importBook(picked);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              book == null ? l.shelfImportFailed : l.shelfImported(book.title),
+            ),
+          ),
+        );
+        return;
+      }
+      if (lower.endsWith('.txt')) {
         final bytes = await TxtToEpub.fromFile(
           picked,
           // 只做规范化（去零宽/BOM），不删正文内容
@@ -132,7 +203,7 @@ class _ShelfPageState extends State<ShelfPage> {
           IconButton(
             tooltip: '导入本地书籍（TXT / EPUB）',
             icon: const Icon(Icons.add),
-            onPressed: _importBook,
+            onPressed: _pickImportKind,
           ),
         ],
         bottom: PreferredSize(

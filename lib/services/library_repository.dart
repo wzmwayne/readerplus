@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import '../models/book.dart';
+import '../reader/ezbk/ezbk_document.dart';
 import 'epub_importer.dart';
+import 'ezbk_book_store.dart';
 import 'storage.dart';
 import 'txt_importer.dart';
 
@@ -71,11 +73,29 @@ class LibraryRepository {
   Future<void> saveContent(String bookId, String content) =>
       storage.writeText(_contentPath(bookId), content);
 
-  /// 按扩展名分派导入：`.epub` 走 EPUB 解析，其余按 TXT 处理。
+  /// 按扩展名分派导入：`.ezbk` 直装，`.epub` 走 EPUB 解析，其余按 TXT 处理。
   Future<Book> importBook(File file) async {
     final path = file.path.toLowerCase();
+    if (path.endsWith('.ezbk')) return importEzbk(file);
     if (path.endsWith('.epub')) return importEpub(file);
     return importTxt(file);
+  }
+
+  /// 直接导入 EZBK 文档（v1.1）：解析 → 建书 → 写正本与派生缓存。
+  Future<Book> importEzbk(File file) async {
+    final doc = EzbkCodec.parse(file.readAsStringSync());
+    final derived = EzbkBookStore.derivePlainText(doc);
+    final book = Book(
+      id: Book.newId(),
+      title: doc.title.isEmpty ? _titleFromPath(file) : doc.title,
+      author: doc.meta['author'] ?? '',
+      originalPath: file.path,
+      charCount: derived.text.length,
+      chapterCount: derived.chapters.length,
+    );
+    await _persist(book, derived.text, derived.chapters);
+    await EzbkBookStore().save(book.id, doc);
+    return book;
   }
 
   /// 导入本地 TXT（含格式清理）。
@@ -116,6 +136,16 @@ class LibraryRepository {
   }
 
   Future<void> _persist(Book book, String content, List<Chapter> chapters) async {
+    // EZBK 正本：EPUB/TXT 导入时同步落盘，之后以它为准
+    await EzbkBookStore().save(
+      book.id,
+      EzbkBookStore.fromChapters(
+        title: book.title,
+        author: book.author,
+        content: content,
+        chapters: chapters,
+      ),
+    );
     await saveContent(book.id, content);
     await saveChapters(book.id, chapters);
     books.add(book);

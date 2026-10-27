@@ -107,6 +107,60 @@ class EzbkBookStore {
     return (text: buffer.toString(), chapters: chapters);
   }
 
+  /// 由「纯文本 + 章节」构造 EZBK 文档（EPUB/TXT 导入时使用）。
+  ///
+  /// 章节标题写成一级标题；正文按行拆段；
+  /// 形如控制行（#/@/---/反斜杠开头）的正文行会被加上转义前缀，避免被误解析。
+  static EzbkDocument fromChapters({
+    required String title,
+    required String author,
+    required String content,
+    required List<Chapter> chapters,
+  }) {
+    final meta = <String, String>{if (title.isNotEmpty) 'title': title};
+    if (author.isNotEmpty) meta['author'] = author;
+    final blocks = <EzbkBlock>[];
+    final sorted = [...chapters]..sort((a, b) => a.start.compareTo(b.start));
+    void addBody(String text) {
+      for (final line in text.split('\n')) {
+        if (line.trim().isEmpty) continue;
+        blocks.add(EzbkBlock(EzbkBlockKind.paragraph, escapeLine(line)));
+      }
+    }
+
+    var cursor = 0;
+    for (final chapter in sorted) {
+      final start = chapter.start.clamp(0, content.length);
+      final end = chapter.end.clamp(start, content.length);
+      // 章节之间的空隙也要保留，避免丢字
+      if (start > cursor) addBody(content.substring(cursor, start));
+      if (chapter.title.trim().isNotEmpty) {
+        blocks.add(EzbkBlock(EzbkBlockKind.heading, escapeLine(chapter.title.trim())));
+      }
+      addBody(content.substring(start, end));
+      cursor = end;
+    }
+    if (cursor < content.length) addBody(content.substring(cursor));
+    return EzbkDocument(
+      blocks: blocks,
+      commands: const [],
+      meta: meta,
+      blobs: const {},
+      warnings: const [],
+    );
+  }
+
+  /// 正文行若看起来像控制行，加双反斜杠转义，保证往返不被误解析。
+  static String escapeLine(String line) {
+    if (line.startsWith('#') ||
+        line.startsWith('@') ||
+        line.startsWith('\\\\') ||
+        line.trim() == ezbkPageBreakMarker) {
+      return '\\\\$line';
+    }
+    return line;
+  }
+
   static void _writeAtomic(File target, List<int> bytes) {
     final tmp = File('${target.path}.tmp');
     tmp.writeAsBytesSync(bytes, flush: true);
