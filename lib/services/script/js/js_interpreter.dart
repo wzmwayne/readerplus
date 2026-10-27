@@ -1,7 +1,3 @@
-import 'dart:convert';
-import 'dart:math' as math;
-
-import 'js_lexer.dart';
 import 'js_parser.dart';
 import 'js_runtime.dart';
 

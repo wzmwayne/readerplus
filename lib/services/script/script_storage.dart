@@ -161,6 +161,10 @@ class DiskTier {
   int writeRaw(String key, List<int> bytes) {
     _validateKey(key);
     _rejectReserved(key);
+    return _writeRawUnchecked(key, bytes);
+  }
+
+  int _writeRawUnchecked(String key, List<int> bytes) {
     final index = _readIndex();
     final previous = (index[key]?['size'] as num?)?.toInt() ?? 0;
     var used = 0;
@@ -183,6 +187,16 @@ class DiskTier {
   }
 
   int writeUtf8(String key, String text) => writeRaw(key, utf8.encode(text));
+
+  /// **仅供宿主**写入保留键（如 task / input/*），脚本侧不可达。
+  int writeReservedRaw(String key, List<int> bytes) {
+    _validateKey(key);
+    return _writeRawUnchecked(key, bytes);
+  }
+
+  /// **仅供宿主**写入保留键（UTF-8 便捷封装）。
+  int writeReservedUtf8(String key, String text) =>
+      writeReservedRaw(key, utf8.encode(text));
 
   bool remove(String key) {
     _validateKey(key);
